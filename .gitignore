@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project-specific generated artifacts (etape1)
+dossier_projet/etape1/data/raw/
+dossier_projet/etape1/data/clean/
+dossier_projet/etape1/data/
