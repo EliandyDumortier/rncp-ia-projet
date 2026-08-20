@@ -22,13 +22,15 @@
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -84,6 +86,7 @@ DEMO_USERS = {
 # ============================================================
 
 limiter = Limiter(key_func=get_remote_address)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 # ============================================================
 # Modèles Pydantic (validation des entrées/sorties)
@@ -352,37 +355,36 @@ def verify_token(token: str) -> dict[str, Any]:
         )
 
 
-def get_current_user(request: Request) -> dict[str, Any]:
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+) -> dict[str, Any]:
     """
-    Dépendance FastAPI : extrait et vérifie le token JWT depuis
-    l'en-tête Authorization.
+    FastAPI dependency: extract and verify JWT token from Authorization header.
 
     Args:
-        request: Objet Request de FastAPI.
+        credentials: Parsed HTTP authorization credentials.
 
     Returns:
-        Payload du token (contenant sub, role, etc.).
+        Decoded JWT payload.
 
     Raises:
-        HTTPException: Si le token est manquant ou invalide.
+        HTTPException: If token is missing or invalid.
     """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
+    if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing Authorization header.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    parts = auth_header.split(" ")
-    if len(parts) != 2 or parts[0].lower() != "bearer":
+    if credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication format. Use: Bearer <token>",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = parts[1]
+    token = credentials.credentials
     return verify_token(token)
 
 
@@ -411,6 +413,31 @@ def require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str,
 # Application FastAPI
 # ============================================================
 
+OPENAPI_TAGS = [
+    {"name": "Monitoring", "description": "Service health, metrics, and alerts."},
+    {"name": "Authentication", "description": "JWT token generation."},
+    {"name": "Recommendation", "description": "Recommendation and prediction endpoints."},
+    {"name": "Model", "description": "Model metadata and runtime information."},
+]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize and teardown application resources."""
+    logger.info("=== Starting K-Drama Recommender API ===")
+    try:
+        model_manager.load_or_train()
+        logger.info("Model preloaded successfully.")
+    except Exception as e:
+        logger.warning(
+            "Model could not be preloaded at startup: %s. "
+            "It will be loaded on first request.",
+            e,
+        )
+    yield
+    logger.info("=== Stopping K-Drama Recommender API ===")
+
+
 app = FastAPI(
     title="K-Drama Recommender API",
     description=(
@@ -422,6 +449,8 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan,
     contact={
         "name": "MLOps Team",
         "email": "mlops@kdrama-recommender.io",
@@ -903,31 +932,6 @@ async def runtime_error_handler(request: Request, exc: RuntimeError):
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": f"Model error: {exc}"},
     )
-
-
-# ============================================================
-# Événements de cycle de vie
-# ============================================================
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Initialise l'API au démarrage : pré-charge le modèle."""
-    logger.info("=== Démarrage de l'API K-Drama Recommender ===")
-    try:
-        model_manager.load_or_train()
-        logger.info("Modèle pré-chargé avec succès.")
-    except Exception as e:
-        logger.warning(
-            "Le modèle n'a pas pu être pré-chargé au démarrage : %s. "
-            "Il sera chargé à la première requête.",
-            e,
-        )
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Nettoyage à l'arrêt de l'API."""
-    logger.info("=== Arrêt de l'API K-Drama Recommender ===")
 
 
 # ============================================================

@@ -496,8 +496,8 @@ class ModelMonitor:
 
         return {
             "model_status": "operational" if MODEL_STATUS._value.get() == 1 else "unavailable",
-            "total_requests": int(REQUEST_COUNT._value.get()) if REQUEST_COUNT._value else 0,
-            "total_errors": int(ERROR_COUNT._value.get()) if ERROR_COUNT._value else 0,
+            "total_requests": len(self._request_times),
+            "total_errors": len(self._error_times),
             "error_rate": round(self.get_error_rate(), 4),
             "prediction_drift_psi": round(psi, 4),
             "drift_level": drift_level,
