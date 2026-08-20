@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import secrets
 import sys
@@ -39,15 +38,14 @@ os.environ.setdefault("JWT_SECRET_KEY", secrets.token_urlsafe(48))
 os.environ.setdefault("ADMIN_PASSWORD", secrets.token_urlsafe(16))
 os.environ.setdefault("USER_PASSWORD", secrets.token_urlsafe(16))
 
-from model_api import app, create_access_token, model_manager
-from recommendation_model import (
+from model_api import app, create_access_token, model_manager  # noqa: E402
+from recommendation_model import (  # noqa: E402
     HybridRecommender,
     RecommendationResult,
     load_real_data,
 )
-from model_monitoring import (
+from model_monitoring import (  # noqa: E402
     ModelMonitor,
-    MonitoringConfig,
     DriftMonitor,
     get_monitor,
 )
