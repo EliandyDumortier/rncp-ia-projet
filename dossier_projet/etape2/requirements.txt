@@ -1,0 +1,24 @@
+# Dépendances Python — Étape 2 : Veille technique et intégration d'un service d'IA
+# Projet : K-Drama Recommendation System
+#
+# Installation :
+#   python -m venv .venv
+#   source .venv/bin/activate  # Linux/macOS
+#   pip install -r requirements.txt
+
+# --- Veille RSS (C6) ---
+feedparser==6.0.11
+
+# --- Benchmark et configuration IA (C7, C8) ---
+sentence-transformers==2.7.0
+scikit-learn==1.4.2
+transformers==4.41.2
+torch==2.3.0
+
+# --- Manipulation de données ---
+numpy==1.26.4
+pandas==2.2.2
+scipy==1.13.0
+
+# --- Utilitaires ---
+python-dotenv==1.0.1
