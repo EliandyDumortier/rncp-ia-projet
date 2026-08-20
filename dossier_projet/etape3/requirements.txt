@@ -1,0 +1,57 @@
+# ============================================================
+# Dépendances du projet Étape 3 — MLOps & API de modèle d'IA
+# Système de recommandation de K-Dramas
+# ============================================================
+
+# --- API Framework ---
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+gunicorn==21.2.0
+
+# --- Authentification & Sécurité ---
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+PyJWT==2.8.0
+slowapi==0.1.9
+
+# --- Modèle d'IA (scikit-learn + sentence-transformers) ---
+scikit-learn==1.4.1.post1
+numpy==1.26.4
+scipy==1.12.0
+sentence-transformers==2.5.1
+torch==2.2.1
+transformers==4.39.3
+huggingface-hub==0.22.2
+
+# --- Manipulation de données ---
+pandas==2.2.1
+pyarrow==15.0.2
+joblib==1.3.2
+sqlalchemy==2.0.29
+psycopg2-binary==2.9.9
+
+# --- Monitoring (Prometheus / Grafana) ---
+prometheus-client==0.20.0
+prometheus-fastapi-instrumentator==6.1.0
+
+# --- Tests ---
+pytest==8.1.1
+pytest-asyncio==0.23.6
+pytest-cov==4.1.0
+httpx==0.27.0
+
+# --- Linting & Qualité de code ---
+ruff==0.3.5
+black==24.3.0
+mypy==1.9.0
+
+# --- Docker & Déploiement ---
+# (géré via Dockerfile, pas d'installation pip nécessaire)
+
+# --- Utilitaires ---
+pydantic==2.6.4
+pydantic-settings==2.2.1
+python-dotenv==1.0.1
+loguru==0.7.2
+tenacity==8.2.3
