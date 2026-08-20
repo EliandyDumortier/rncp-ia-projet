@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -33,6 +34,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 pytestmark = pytest.mark.filterwarnings(
     "ignore:The 'app' shortcut is now deprecated.*:DeprecationWarning:httpx\\._client"
 )
+
+os.environ.setdefault("JWT_SECRET_KEY", secrets.token_urlsafe(48))
+os.environ.setdefault("ADMIN_PASSWORD", secrets.token_urlsafe(16))
+os.environ.setdefault("USER_PASSWORD", secrets.token_urlsafe(16))
 
 from model_api import app, create_access_token, model_manager
 from recommendation_model import (
@@ -208,7 +213,7 @@ class TestAuthEndpoint:
         """L'authentification avec des identifiants valides doit réussir."""
         response = client.post(
             "/auth/token",
-            json={"username": "admin", "password": "admin123"},
+            json={"username": "admin", "password": os.environ["ADMIN_PASSWORD"]},
         )
         assert response.status_code == 200
         data = response.json()
