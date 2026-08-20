@@ -1,0 +1,45 @@
+# ==============================================================================
+# requirements.txt — Dépendances Python pour l'Étape 1
+# Projet : Système de recommandation de K-Dramas par IA
+# Étape 1 : Collecte et préparation des données
+# ==============================================================================
+
+# --- Framework API REST ---
+fastapi>=0.104.0,<1.0.0
+uvicorn[standard]>=0.24.0,<1.0.0
+
+# --- Base de données (PostgreSQL + SQLAlchemy) ---
+sqlalchemy>=2.0.0,<3.0.0
+psycopg2-binary>=2.9.0,<3.0.0
+
+# --- Manipulation de données ---
+pandas>=2.1.0,<3.0.0
+numpy>=1.26.0,<2.0.0
+
+# --- Collecte HTTP (API REST + scraping) ---
+requests>=2.31.0,<3.0.0
+beautifulsoup4>=4.12.0,<5.0.0
+lxml>=4.9.0,<6.0.0
+
+# --- Contournement Cloudflare pour scraping MyDramaList ---
+cloudscraper>=1.2.71,<2.0.0
+
+# --- Rendu navigateur headless (repli si cloudscraper échoue) ---
+playwright>=1.40.0,<2.0.0
+
+# --- Sécurité (JWT + hachage des mots de passe) ---
+python-jose[cryptography]>=3.3.0,<4.0.0
+passlib[bcrypt]>=1.7.4,<2.0.0
+bcrypt>=4.0.0,<5.0.0
+
+# --- Validation des données ---
+pydantic[email]>=2.5.0,<3.0.0
+
+# --- Configuration ---
+python-dotenv>=1.0.0,<2.0.0
+
+# --- Client HTTP asynchrone (pour les tests) ---
+httpx>=0.25.0,<1.0.0
+
+# --- Gestion des fichiers multipart/form-data (pour les tests) ---
+python-multipart
