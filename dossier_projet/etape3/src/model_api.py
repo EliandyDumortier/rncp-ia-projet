@@ -24,9 +24,11 @@ import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import jwt
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
@@ -59,24 +61,44 @@ logger = logging.getLogger(__name__)
 # Configuration (variables d'environnement)
 # ============================================================
 
-JWT_SECRET_KEY = os.environ.get(
-    "JWT_SECRET_KEY",
-    "kdrama-dev-secret-key-change-in-production",
-)
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+for _env_path in (
+    Path.cwd() / ".env",
+    _PROJECT_ROOT / ".env",
+    _PROJECT_ROOT / "dossier_projet" / "etape3" / ".env",
+    _PROJECT_ROOT / "dossier_projet" / "etape1" / ".env",
+):
+    load_dotenv(_env_path, override=False)
+
+
+def _get_required_env(var_name: str) -> str:
+    value = os.environ.get(var_name)
+    if not value:
+        raise RuntimeError(
+            f"Missing required environment variable: {var_name}. "
+            "Configure it in dossier_projet/etape3/.env or the shell environment."
+        )
+    return value
+
+
+JWT_SECRET_KEY = _get_required_env("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.environ.get("JWT_EXPIRATION_HOURS", "24"))
 
 API_RATE_LIMIT = os.environ.get("API_RATE_LIMIT", "100/minute")
 MODEL_RATE_LIMIT = os.environ.get("MODEL_RATE_LIMIT", "30/minute")
 
-# Utilisateurs de démonstration (en production : base de données)
+ADMIN_PASSWORD = _get_required_env("ADMIN_PASSWORD")
+USER_PASSWORD = _get_required_env("USER_PASSWORD")
+
+# Demo users (production should use a database-backed user store)
 DEMO_USERS = {
     "admin": {
-        "password": os.environ.get("ADMIN_PASSWORD", "admin123"),
+        "password": ADMIN_PASSWORD,
         "role": "admin",
     },
     "user": {
-        "password": os.environ.get("USER_PASSWORD", "user123"),
+        "password": USER_PASSWORD,
         "role": "user",
     },
 }
