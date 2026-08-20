@@ -221,3 +221,6 @@ __marimo__/
 dossier_projet/etape1/data/raw/
 dossier_projet/etape1/data/clean/
 dossier_projet/etape1/data/
+
+# Project-specific generated artifacts (etape2)
+dossier_projet/etape2/src/veille_historique.json
