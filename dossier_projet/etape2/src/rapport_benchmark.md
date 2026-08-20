@@ -1,7 +1,7 @@
 # Rapport de benchmark — Services d'IA pour la recommandation
 
 **Projet** : K-Drama Recommendation System
-**Date** : 2026-08-20 16:32:15
+**Date** : 2026-08-20 17:47:19
 
 ---
 
@@ -33,7 +33,7 @@
 
 | Service | Latence (ms) | Qualité (Spearman) | Coût mensuel ($) |
 |---|---|---|---|
-| Hugging Face (sentence-transformers, local) | 151.0 | 0.612 | 0.00 |
+| Hugging Face (sentence-transformers, local) | 140.4 | 0.578 | 0.00 |
 | Modèles locaux (Ollama + nomic-embed-text) | 250.0 | 0.750 | 0.00 |
 | OpenAI (text-embedding-3-small) | 120.0 | 0.830 | 0.12 |
 | Cohere (Embed v3) | 130.0 | 0.800 | 0.60 |
@@ -46,8 +46,8 @@
 ### Hugging Face (sentence-transformers, local)
 
 - **Note globale** : 4.30 / 5
-- **Latence** : 151.0 ms
-- **Qualité (Spearman)** : 0.612
+- **Latence** : 140.4 ms
+- **Qualité (Spearman)** : 0.578
 - **Coût mensuel** : 0.00 $
 - **Détails** : Modèle open-source en inférence locale. Gratuit, confidentiel (aucune donnée ne sort), multilingue. Documentation très claire. Qualité légèrement inférieure à OpenAI mais suffisante pour la recommandation de contenu culturel.
 

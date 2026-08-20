@@ -234,7 +234,8 @@ def _correlation_spearman(
 ) -> float:
     """Calcule le coefficient de corrélation de Spearman entre deux listes.
 
-    Implémentation simple (sans scipy) pour éviter une dépendance supplémentaire.
+    Délègue à scipy.stats.spearmanr qui gère correctement les ex aequo
+    via la méthode des rangs moyens.
 
     Args:
         x: Première liste de valeurs.
@@ -245,7 +246,22 @@ def _correlation_spearman(
     """
     if len(x) != len(y) or len(x) < 2:
         return 0.0
+    try:
+        from scipy.stats import spearmanr  # type: ignore
+        resultat, _ = spearmanr(x, y)
+        if resultat is None or not isinstance(resultat, (int, float)):
+            return 0.0
+        return float(resultat)
+    except ImportError:
+        logger.warning("scipy non disponible — fallback sans gestion des ties.")
+        return _correlation_spearman_fallback(x, y)
 
+
+def _correlation_spearman_fallback(
+    x: List[float],
+    y: List[float],
+) -> float:
+    """Fallback : Spearman sans gestion des ex aequo (si scipy absent)."""
     def _rangs(valeurs: List[float]) -> List[float]:
         indices_tries = sorted(range(len(valeurs)), key=lambda i: valeurs[i])
         rangs = [0.0] * len(valeurs)

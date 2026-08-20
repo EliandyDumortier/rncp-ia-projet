@@ -580,9 +580,12 @@ class CollaborativeFilteringRecommender:
         indices = indices[masque]
         similarites = similarites[masque]
 
-        # 2. Agrégation des notes des voisins
+        # 2. Agrégation des notes des voisins (moyenne pondérée par similarité)
         notes_voisins = self._matrice[indices]  # matrice creuse
         notes_agg = np.array(notes_voisins.T.dot(similarites)).flatten()
+        somme_sim = similarites.sum()
+        if somme_sim > 0:
+            notes_agg = notes_agg / somme_sim
 
         # 3. Exclusion des séries déjà notées par l'utilisateur
         series_deja_notees = self._matrice[id_utilisateur].nonzero()[1]

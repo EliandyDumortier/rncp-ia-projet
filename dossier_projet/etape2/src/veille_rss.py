@@ -33,7 +33,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import feedparser  # type: ignore[import-untyped]
 
@@ -228,25 +228,28 @@ def _contient_mot_cle(texte: str, mots_cles: List[str]) -> bool:
     return False
 
 
-def _formater_date(date_raw: str) -> str:
+def _formater_date(date_raw: str, date_parsed: Any = None) -> str:
     """Tente de formater une date RSS en chaîne lisible (YYYY-MM-DD).
+
+    Utilise en priorité le champ parsé par feedparser (published_parsed
+    ou updated_parsed), qui est une time.struct_time déjà décodée.
+    Si absent, retombe sur la chaîne brute.
 
     Args:
         date_raw: Date brute telle que fournie par feedparser.
+        date_parsed: struct_time parsée par feedparser (optionnel).
 
     Returns:
         Date formatée ou la chaîne brute si le parsing échoue.
     """
+    if date_parsed:
+        try:
+            dt = datetime(*date_parsed[:6], tzinfo=timezone.utc)
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            pass
     if not date_raw:
         return "Date inconnue"
-    try:
-        # feedparser fournit souvent une structure time.struct_time
-        struct = feedparser._parse_date(date_raw)  # type: ignore[attr-defined]
-        if struct:
-            dt = datetime(*struct[:6], tzinfo=timezone.utc)
-            return dt.strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        pass
     return date_raw
 
 
@@ -332,6 +335,9 @@ def _parser_flux(url: str, categorie: str) -> List[Article]:
             lien = entree.get("link", "")
             resume = entree.get("summary", entree.get("description", ""))
             date_raw = entree.get("published", entree.get("updated", ""))
+            date_parsed = entree.get(
+                "published_parsed", entree.get("updated_parsed")
+            )
 
             # Extraction du nom de la source à partir de l'URL ou du flux
             source = (
@@ -344,7 +350,7 @@ def _parser_flux(url: str, categorie: str) -> List[Article]:
                 titre=titre,
                 lien=lien,
                 resume=resume,
-                date_publication=_formater_date(date_raw),
+                date_publication=_formater_date(date_raw, date_parsed),
                 source=source,
                 categorie=categorie,
             )
@@ -442,11 +448,11 @@ def generer_rapport(
         lignes.append("")
 
         # Tri par date décroissante (les dates inconnues en dernier)
-        articles_tries = sorted(
-            articles_cat,
-            key=lambda a: a.date_publication,
-            reverse=True,
-        )
+        def _cle_tri(article: Article) -> tuple:
+            inconnue = article.date_publication == "Date inconnue"
+            return (inconnue, article.date_publication)
+
+        articles_tries = sorted(articles_cat, key=_cle_tri, reverse=True)
 
         for i, article in enumerate(articles_tries[:MAX_ARTICLES_PAR_CATEGORIE], 1):
             lignes.append(f"### {i}. {article.titre}")
