@@ -519,8 +519,8 @@ class HybridRecommender:
                         title=drama_info["title"],
                         score=float(score),
                         genres=drama_info["genres"],
-                        reason="Recommandé basé sur votre historique "
-                        "et les utilisateurs similaires.",
+                        reason="Recommended based on your history "
+                        "and similar users.",
                     )
                 )
 
@@ -600,8 +600,8 @@ class HybridRecommender:
                         title=drama_info["title"],
                         score=float(score),
                         genres=drama_info["genres"],
-                        reason="Similaire au drama sélectionné "
-                        "(contenu et préférences utilisateurs).",
+                        reason="Similar to the selected drama "
+                        "(content and user preferences).",
                     )
                 )
 
@@ -638,7 +638,7 @@ class HybridRecommender:
                         title=drama_info["title"],
                         score=float(score),
                         genres=drama_info["genres"],
-                        reason="Drama populaire (note moyenne élevée).",
+                        reason="Popular drama (high average rating).",
                     )
                 )
 
@@ -826,10 +826,90 @@ class HybridRecommender:
         if row.empty:
             return None
         row = row.iloc[0]
-        genres_raw = str(row.get("genres", ""))
-        genres = [g.strip() for g in genres_raw.split(",") if g.strip()]
+
+        def _repair_text(value: str) -> str:
+            """Repair common mojibake artifacts when UTF-8 was decoded as Latin-1."""
+            if not value:
+                return value
+            try:
+                return value.encode("latin1").decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                return value
+
+        def _to_english_genre(label: str) -> str:
+            mapping = {
+                "comedie": "Comedy",
+                "drame": "Drama",
+                "mystere": "Mystery",
+                "historique": "Historical",
+                "fantastique": "Fantasy",
+                "science-fiction": "Science Fiction",
+                "surnaturel": "Supernatural",
+                "politique": "Political",
+                "juridique": "Legal",
+                "famille": "Family",
+                "amitie": "Friendship",
+                "tranche de vie": "Slice of Life",
+                "jeunesse": "Youth",
+                "ecole": "School",
+                "psychologique": "Psychological",
+                "militaire": "Military",
+                "espionnage": "Espionage",
+                "voyage dans le temps": "Time Travel",
+            }
+            key = (
+                label.strip()
+                .lower()
+                .replace("é", "e")
+                .replace("è", "e")
+                .replace("ê", "e")
+                .replace("ë", "e")
+                .replace("à", "a")
+                .replace("â", "a")
+                .replace("ä", "a")
+                .replace("î", "i")
+                .replace("ï", "i")
+                .replace("ô", "o")
+                .replace("ö", "o")
+                .replace("ù", "u")
+                .replace("û", "u")
+                .replace("ü", "u")
+                .replace("ç", "c")
+            )
+            return mapping.get(key, label.strip())
+
+        genres_value = row.get("genres", "")
+        parsed_genres: list[str]
+        if isinstance(genres_value, list):
+            parsed_genres = [str(g) for g in genres_value]
+        elif isinstance(genres_value, str):
+            text_value = genres_value.strip()
+            if not text_value:
+                parsed_genres = []
+            elif text_value.startswith("[") and text_value.endswith("]"):
+                try:
+                    decoded = json.loads(text_value)
+                    if isinstance(decoded, list):
+                        parsed_genres = [str(g) for g in decoded]
+                    else:
+                        parsed_genres = [str(decoded)]
+                except json.JSONDecodeError:
+                    parsed_genres = [g.strip() for g in text_value.split(",") if g.strip()]
+            else:
+                parsed_genres = [g.strip() for g in text_value.split(",") if g.strip()]
+        else:
+            parsed_genres = [str(genres_value)] if genres_value else []
+
+        genres: list[str] = []
+        for genre in parsed_genres:
+            clean = _repair_text(genre.strip().strip("[]\"'"))
+            clean = _to_english_genre(clean)
+            if clean and clean not in genres:
+                genres.append(clean)
+
+        title = _repair_text(str(row.get("title", "Unknown")))
         return {
-            "title": str(row.get("title", "Inconnu")),
+            "title": title,
             "genres": genres,
         }
 

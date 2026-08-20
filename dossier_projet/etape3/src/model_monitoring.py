@@ -454,11 +454,10 @@ class ModelMonitor:
                     {
                         "name": "PredictionDriftHigh",
                         "level": level,
-                        "message": f"Dérive de prédiction élevée : PSI = {psi:.4f}",
+                        "message": f"High prediction drift: PSI = {psi:.4f}",
                         "value": psi,
                         "threshold": self.config.alert_psi_threshold,
-                        "action": "Ré-entraîner le modèle avec des données récentes.",
-                    }
+                        "action": "Retrain the model with recent data.",                    }
                 )
 
         # --- Alerte 2 : Taux d'erreur ---
@@ -468,11 +467,10 @@ class ModelMonitor:
                 {
                     "name": "ErrorRateHigh",
                     "level": "critical",
-                    "message": f"Taux d'erreur élevé : {error_rate:.2%}",
+                    "message": f"High error rate: {error_rate:.2%}",
                     "value": error_rate,
                     "threshold": self.config.alert_error_rate_threshold,
-                    "action": "Vérifier les logs et l'état de l'API.",
-                }
+                    "action": "Check logs and API status.",                }
             )
 
         return alerts
@@ -529,8 +527,8 @@ groups:
           severity: warning
           service: kdrama-recommender
         annotations:
-          summary: "Dérive de prédiction élevée"
-          description: "Le PSI (Population Stability Index) est supérieur à 0.25 depuis 5 minutes. Ré-entraînement recommandé."
+          summary: "High prediction drift"
+          description: "The PSI (Population Stability Index) has been above 0.25 for 5 minutes. Retraining recommended."
           runbook_url: "https://wiki.internal/mlops/runbooks/drift"
 
       # --- Alerte : Dérive critique ---
@@ -541,8 +539,8 @@ groups:
           severity: critical
           service: kdrama-recommender
         annotations:
-          summary: "Dérive de prédiction CRITIQUE"
-          description: "Le PSI dépasse 0.5. Le modèle doit être ré-entraîné immédiatement."
+          summary: "CRITICAL prediction drift"
+          description: "PSI exceeds 0.5. The model must be retrained immediately."
 
       # --- Alerte : Taux d'erreur élevé ---
       - alert: HighErrorRate
@@ -556,8 +554,8 @@ groups:
           severity: critical
           service: kdrama-recommender
         annotations:
-          summary: "Taux d'erreur API élevé"
-          description: "Le taux d'erreur dépasse 5% sur les 5 dernières minutes."
+          summary: "High API error rate"
+          description: "The error rate exceeds 5% over the last 5 minutes."
 
       # --- Alerte : Latence P99 élevée ---
       - alert: HighLatencyP99
@@ -570,8 +568,8 @@ groups:
           severity: warning
           service: kdrama-recommender
         annotations:
-          summary: "Latence P99 élevée"
-          description: "La latence P99 dépasse 2 secondes depuis 5 minutes."
+          summary: "High P99 latency"
+          description: "P99 latency exceeds 2 seconds for 5 minutes."
 
       # --- Alerte : Modèle indisponible ---
       - alert: ModelUnavailable
@@ -581,8 +579,8 @@ groups:
           severity: critical
           service: kdrama-recommender
         annotations:
-          summary: "Modèle d'IA indisponible"
-          description: "Le modèle de recommandation n'est pas entraîné ou a crashé."
+          summary: "AI model unavailable"
+          description: "The recommendation model is not trained or has crashed."
 
       # --- Alerte : Aucune prédiction récente ---
       - alert: NoRecentPredictions
@@ -593,8 +591,8 @@ groups:
           severity: warning
           service: kdrama-recommender
         annotations:
-          summary: "Aucune prédiction récente"
-          description: "Aucune prédiction n'a été générée dans les 10 dernières minutes."
+          summary: "No recent predictions"
+          description: "No predictions have been generated in the last 10 minutes."
 """
 
 
@@ -632,13 +630,13 @@ def get_alert_rules() -> str:
 
 GRAFANA_DASHBOARD = {
     "dashboard": {
-        "title": "K-Drama Recommender — Monitoring Modèle IA",
+        "title": "K-Drama Recommender — AI Model Monitoring",
         "tags": ["mlops", "kdrama", "ai"],
         "timezone": "browser",
         "panels": [
             {
                 "id": 1,
-                "title": "Latence des requêtes (P50, P95, P99)",
+                "title": "Request latency (P50, P95, P99)",
                 "type": "graph",
                 "datasource": "Prometheus",
                 "targets": [
@@ -649,7 +647,7 @@ GRAFANA_DASHBOARD = {
             },
             {
                 "id": 2,
-                "title": "Nombre de requêtes par endpoint",
+                "title": "Request count by endpoint",
                 "type": "graph",
                 "datasource": "Prometheus",
                 "targets": [
@@ -658,7 +656,7 @@ GRAFANA_DASHBOARD = {
             },
             {
                 "id": 3,
-                "title": "Dérive de prédiction (PSI)",
+                "title": "Prediction drift (PSI)",
                 "type": "gauge",
                 "datasource": "Prometheus",
                 "targets": [
@@ -672,7 +670,7 @@ GRAFANA_DASHBOARD = {
             },
             {
                 "id": 4,
-                "title": "Distribution des scores de recommandation",
+                "title": "Recommendation score distribution",
                 "type": "histogram",
                 "datasource": "Prometheus",
                 "targets": [
@@ -681,7 +679,7 @@ GRAFANA_DASHBOARD = {
             },
             {
                 "id": 5,
-                "title": "Taux d'erreur",
+                "title": "Error rate",
                 "type": "graph",
                 "datasource": "Prometheus",
                 "targets": [
@@ -690,7 +688,7 @@ GRAFANA_DASHBOARD = {
             },
             {
                 "id": 6,
-                "title": "Statut du modèle",
+                "title": "Model status",
                 "type": "stat",
                 "datasource": "Prometheus",
                 "targets": [
@@ -699,7 +697,7 @@ GRAFANA_DASHBOARD = {
             },
             {
                 "id": 7,
-                "title": "Temps d'inférence du modèle",
+                "title": "Model inference time",
                 "type": "graph",
                 "datasource": "Prometheus",
                 "targets": [

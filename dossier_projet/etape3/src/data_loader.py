@@ -65,8 +65,8 @@ def _get_database_url() -> str:
     url = os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL")
     if not url:
         raise RuntimeError(
-            "Connexion à la base de données non configurée. "
-            "Définissez SUPABASE_DB_URL ou DATABASE_URL dans le fichier .env."
+            "Database connection is not configured. "
+            "Set SUPABASE_DB_URL or DATABASE_URL in your .env file."
         )
     return url
 
@@ -117,13 +117,13 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
             rows = result.fetchall()
     except Exception as exc:
         raise RuntimeError(
-            f"Erreur de lecture de la table kdramas : {exc}"
+            f"Error reading the kdramas table: {exc}"
         ) from exc
     finally:
         engine.dispose()
 
     if not rows:
-        raise RuntimeError("La table kdramas est vide.")
+        raise RuntimeError("The kdramas table is empty.")
 
     columns = list(result.keys())
     records: list[dict[str, Any]] = []
@@ -174,8 +174,8 @@ def generate_interactions_from_catalog(
 
     if "note_moyenne" not in dramas_df.columns:
         raise ValueError(
-            "dramas_df doit contenir la colonne 'note_moyenne' "
-            "(notes agrégées réelles de l'étape 1)."
+            "dramas_df must contain the 'note_moyenne' column "
+            "(real aggregated ratings from step 1)."
         )
 
     drama_ids = dramas_df["drama_id"].tolist()
