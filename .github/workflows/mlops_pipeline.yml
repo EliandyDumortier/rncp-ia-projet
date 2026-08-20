@@ -1,0 +1,428 @@
+# ============================================================
+# Pipeline MLOps — Chaîne de livraison continue
+# Fichier : .github/workflows/mlops_pipeline.yml
+#
+# Stratégie de branches (GitFlow simplifié) :
+#   - develop : branche d'intégration. Tous les pushs déclenchent
+#     lint, tests, entraînement et packaging (staging).
+#   - main : branche de production. Mise à jour uniquement par
+#     merge de develop quand toutes les étapes sont stables.
+#     Le déploiement production n'a lieu que sur push vers main.
+#
+# Étapes du pipeline :
+#   1. Lint (ruff + black --check)
+#   2. Tests (pytest avec couverture)
+#   3. Entraînement du modèle (génération des artefacts)
+#   4. Packaging (build Docker image)
+#   5. Déploiement staging (develop) / production (main)
+#
+# Auteur : Équipe MLOps
+# Étape 3 — RNCP AI Project
+# ============================================================
+
+name: MLOps Pipeline — K-Drama Recommender
+
+on:
+  push:
+    branches:
+      - etape3/mlops-modele
+      - develop
+      - main
+    paths:
+      - 'dossier_projet/etape3/**'
+      - '.github/workflows/mlops_pipeline.yml'
+  pull_request:
+    branches:
+      - etape3/mlops-modele
+      - develop
+      - main
+    paths:
+      - 'dossier_projet/etape3/**'
+
+env:
+  PYTHON_VERSION: '3.11'
+  WORKING_DIR: dossier_projet/etape3
+  IMAGE_NAME: kdrama-recommender-api
+  REGISTRY: ghcr.io
+
+# Permissions pour GitHub Container Registry
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ============================================================
+  # Étape 1 : Linting et vérification du formatage
+  # ============================================================
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ruff==0.3.5 black==24.3.0 mypy==1.9.0
+
+      - name: Ruff lint check
+        run: |
+          ruff check src/ tests/ --output-format=github
+
+      - name: Black format check
+        run: |
+          black --check --diff src/ tests/
+
+      - name: MyPy type check
+        run: |
+          mypy src/ --ignore-missing-imports --no-strict-optional
+        continue-on-error: true  # Non bloquant en dev
+
+  # ============================================================
+  # Étape 2 : Tests automatisés avec couverture
+  # ============================================================
+  test:
+    name: Tests automatisés
+    runs-on: ubuntu-latest
+    needs: lint
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: '${{ env.WORKING_DIR }}/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests with coverage
+        env:
+          JWT_SECRET_KEY: test-secret-key-for-ci
+          ADMIN_PASSWORD: admin123
+          USER_PASSWORD: user123
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          pytest tests/ -v \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            --junitxml=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ${{ env.WORKING_DIR }}/test-results.xml
+          retention-days: 30
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ${{ env.WORKING_DIR }}/coverage.xml
+          retention-days: 30
+
+      - name: Upload to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          file: ${{ env.WORKING_DIR }}/coverage.xml
+          flags: etape3
+          fail_ci_if_error: false
+
+  # ============================================================
+  # Étape 3 : Entraînement et validation du modèle
+  # ============================================================
+  train:
+    name: Model training
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: '${{ env.WORKING_DIR }}/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train recommendation model
+        env:
+          MODEL_OUTPUT_DIR: model_artifacts
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          cd src
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from recommendation_model import HybridRecommender, load_real_data
+          import json
+
+          print('=== Model training (CI) — real data from step 1 ===')
+          dramas_df, interactions_df = load_real_data(num_users=50)
+          model = HybridRecommender(alpha=0.6)
+          metrics = model.train(dramas_df, interactions_df)
+          model.save('../model_artifacts')
+
+          print('Training metrics:')
+          print(json.dumps(metrics.to_dict(), indent=2))
+
+          results = model.recommend(user_id=1, top_k=5)
+          assert len(results) > 0, 'Model must generate recommendations'
+          print(f'OK: {len(results)} recommendations generated')
+
+          first_drama_id = dramas_df['drama_id'].iloc[0]
+          score = model.predict(user_id=1, drama_id=int(first_drama_id))
+          assert 0 <= score <= 10, f'Invalid score: {score}'
+          print(f'OK: prediction valid: {score:.2f}')
+          "
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-artifacts
+          path: ${{ env.WORKING_DIR }}/model_artifacts/
+          retention-days: 90
+
+      - name: Model regression tests
+        env:
+          JWT_SECRET_KEY: test-secret-key-for-ci
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'src')
+          from recommendation_model import HybridRecommender
+          import numpy as np
+
+          model = HybridRecommender.load('model_artifacts')
+
+          norms = np.linalg.norm(model.content_embeddings, axis=1)
+          assert np.allclose(norms, 1.0, atol=0.01), 'Embeddings must be L2-normalized'
+          print('OK: embeddings normalized (L2)')
+
+          results = model.recommend(user_id=1, top_k=5)
+          for r in results:
+              assert r.score > 0, f'Negative score: {r.score}'
+          print('OK: all recommendation scores positive')
+
+          print('OK: all regression tests passed')
+          "
+
+  # ============================================================
+  # Étape 4 : Build et packaging Docker
+  # ============================================================
+  package:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: train
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: model-artifacts
+          path: ${{ env.WORKING_DIR }}/model_artifacts/
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=sha-
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.WORKING_DIR }}
+          file: ${{ env.WORKING_DIR }}/docker/Dockerfile.model
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GIT_COMMIT=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          format: spdx-json
+          output-file: sbom.spdx.json
+        if: github.ref == 'refs/heads/main'
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+          retention-days: 90
+        if: github.ref == 'refs/heads/main'
+
+  # ============================================================
+  # Étape 5a : Déploiement Staging (push vers develop)
+  # ============================================================
+  deploy-staging:
+    name: Deploy (Staging)
+    runs-on: ubuntu-latest
+    needs: package
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment:
+      name: staging
+      url: https://staging.kdrama-api.example.com
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        env:
+          IMAGE_TAG: sha-${{ github.sha }}
+        run: |
+          echo "=== Deploying image $IMAGE_TAG to staging ==="
+          echo "Image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:staging"
+          echo "OK: staging deployment simulated successfully"
+
+      - name: Post-deploy health check (staging)
+        env:
+          API_URL: https://staging.kdrama-api.example.com
+        run: |
+          echo "=== Staging health check ==="
+          echo "OK: staging health check simulated: 200 OK"
+
+  # ============================================================
+  # Étape 5b : Déploiement Production (push vers main uniquement)
+  # ============================================================
+  deploy-production:
+    name: Deploy (Production)
+    runs-on: ubuntu-latest
+    needs: package
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://kdrama-api.example.com
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          IMAGE_TAG: sha-${{ github.sha }}
+        run: |
+          echo "=== Deploying image $IMAGE_TAG to production ==="
+          echo "Image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+          echo "OK: production deployment simulated successfully"
+
+      - name: Post-deploy health check (production)
+        env:
+          API_URL: https://kdrama-api.example.com
+        run: |
+          echo "=== Production health check ==="
+          echo "OK: production health check simulated: 200 OK"
+
+      - name: Slack notification
+        if: always()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          slack-message: |
+            K-Drama Recommender API deployed to production
+            - Branch: ${{ github.ref_name }}
+            - Commit: ${{ github.sha }}
+            - Status: ${{ job.status }}
+            - Image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
+
+  # ============================================================
+  # Étape 6 : Monitoring post-déploiement (production)
+  # ============================================================
+  monitor-deploy:
+    name: Post-deploy monitoring
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: always() && needs.deploy-production.result == 'success'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Prometheus metrics
+        run: |
+          echo "=== Post-deploy metrics verification ==="
+          echo "In production, this step would verify:"
+          echo "  1. /metrics endpoint is accessible"
+          echo "  2. kdrama_model_status == 1"
+          echo "  3. No critical alerts active"
+          echo "  4. P99 latency < 2 seconds"
+          echo "OK: post-deploy monitoring simulated successfully"
