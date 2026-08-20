@@ -56,47 +56,70 @@ load_dotenv()
 RAW_DATA_DIR = Path(__file__).parent.parent / "data" / "raw"
 CLEAN_DATA_DIR = Path(__file__).parent.parent / "data" / "clean"
 
-# Référentiel des genres normalisés (mapping vers un vocabulaire commun)
+# Référentiel des genres normalisés (mapping vers un vocabulaire commun en anglais)
 GENRE_NORMALISATION = {
-    # Anglais -> Normalisé
+    # Anglais + variantes françaises (sans accents) -> Canonique anglais
     "romance": "Romance",
     "romantic": "Romance",
-    "comedy": "Comédie",
-    "comedy romance": "Comédie romantique",
+    "comedy": "Comedy",
+    "comedie": "Comedy",
+    "comedy romance": "Romantic Comedy",
+    "comedie romantique": "Romantic Comedy",
     "thriller": "Thriller",
-    "mystery": "Mystère",
-    "historical": "Historique",
-    "history": "Historique",
-    "fantasy": "Fantastique",
+    "mystery": "Mystery",
+    "mystere": "Mystery",
+    "historical": "Historical",
+    "history": "Historical",
+    "historique": "Historical",
+    "fantasy": "Fantasy",
+    "fantastique": "Fantasy",
     "action": "Action",
-    "drama": "Drame",
-    "melodrama": "Mélodrame",
+    "drama": "Drama",
+    "drame": "Drama",
+    "melodrama": "Melodrama",
+    "melodrame": "Melodrama",
     "crime": "Crime",
-    "political": "Politique",
-    "medical": "Médical",
-    "legal": "Juridique",
-    "law": "Juridique",
-    "supernatural": "Surnaturel",
-    "horror": "Horreur",
-    "sci-fi": "Science-fiction",
-    "science fiction": "Science-fiction",
-    "science-fiction": "Science-fiction",
-    "family": "Famille",
-    "friendship": "Amitié",
-    "slice of life": "Tranche de vie",
-    "music": "Musique",
-    "sports": "Sport",
+    "political": "Political",
+    "politique": "Political",
+    "medical": "Medical",
+    "medicale": "Medical",
+    "legal": "Legal",
+    "law": "Legal",
+    "juridique": "Legal",
+    "supernatural": "Supernatural",
+    "surnaturel": "Supernatural",
+    "horror": "Horror",
+    "horreur": "Horror",
+    "sci-fi": "Science Fiction",
+    "science fiction": "Science Fiction",
+    "science-fiction": "Science Fiction",
+    "family": "Family",
+    "famille": "Family",
+    "friendship": "Friendship",
+    "amitie": "Friendship",
+    "slice of life": "Slice of Life",
+    "tranche de vie": "Slice of Life",
+    "music": "Music",
+    "musique": "Music",
+    "sports": "Sports",
+    "sport": "Sports",
     "business": "Business",
     "workplace": "Business",
-    "youth": "Jeunesse",
-    "school": "École",
-    "psychological": "Psychologique",
-    "military": "Militaire",
-    "espionage": "Espionnage",
+    "youth": "Youth",
+    "jeunesse": "Youth",
+    "school": "School",
+    "ecole": "School",
+    "psychological": "Psychological",
+    "psychologique": "Psychological",
+    "military": "Military",
+    "militaire": "Military",
+    "espionage": "Espionage",
+    "espionnage": "Espionage",
     "zombie": "Zombie",
     "vampire": "Vampire",
-    "time travel": "Voyage dans le temps",
-    "time-travel": "Voyage dans le temps",
+    "time travel": "Time Travel",
+    "time-travel": "Time Travel",
+    "voyage dans le temps": "Time Travel",
 }
 
 # Années valides pour les K-Dramas (première diffusion)
@@ -548,7 +571,9 @@ class DataAggregator:
             for genre in genres:
                 if not genre or not isinstance(genre, str):
                     continue
-                genre_key = genre.strip().lower()
+                genre_key = unicodedata.normalize(
+                    "NFKD", genre.strip().lower()
+                ).encode("ascii", "ignore").decode("ascii")
                 genre_normalise = GENRE_NORMALISATION.get(genre_key, genre.strip())
                 if genre_normalise not in genres_normalises:
                     genres_normalises.append(genre_normalise)
