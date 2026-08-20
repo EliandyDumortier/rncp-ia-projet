@@ -541,18 +541,20 @@ CREATE POLICY politique_utilisateur_self ON kdrama.utilisateurs
     USING (id = current_setting('app.current_user_id', TRUE)::INTEGER
            OR est_supprime = FALSE);
 
--- Politique : les admins voient tous les comptes (non supprimés)
+-- Politique : les admins voient et gèrent tous les comptes
 CREATE POLICY politique_admin_all ON kdrama.utilisateurs
     FOR ALL
-    USING (current_setting('app.current_role', TRUE) = 'admin');
+    USING (current_setting('app.current_role', TRUE) = 'admin')
+    WITH CHECK (current_setting('app.current_role', TRUE) = 'admin');
 
 -- Activation du RLS sur la table notes
 ALTER TABLE kdrama.notes ENABLE ROW LEVEL SECURITY;
 
--- Politique : un utilisateur ne voit que ses propres notes
+-- Politique : un utilisateur ne voit et ne gère que ses propres notes
 CREATE POLICY politique_notes_self ON kdrama.notes
-    FOR SELECT
-    USING (utilisateur_id = current_setting('app.current_user_id', TRUE)::INTEGER);
+    FOR ALL
+    USING (utilisateur_id = current_setting('app.current_user_id', TRUE)::INTEGER)
+    WITH CHECK (utilisateur_id = current_setting('app.current_user_id', TRUE)::INTEGER);
 
 -- Politique : les notes sont visibles par tous pour les recommandations
 -- (mais les commentaires ne sont exposés que via l'API authentifiée)
@@ -563,10 +565,11 @@ CREATE POLICY politique_notes_public_read ON kdrama.notes
 -- Activation du RLS sur la table historique_visionnage
 ALTER TABLE kdrama.historique_visionnage ENABLE ROW LEVEL SECURITY;
 
--- Politique : un utilisateur ne voit que son propre historique
+-- Politique : un utilisateur ne voit et ne gère que son propre historique
 CREATE POLICY politique_historique_self ON kdrama.historique_visionnage
     FOR ALL
-    USING (utilisateur_id = current_setting('app.current_user_id', TRUE)::INTEGER);
+    USING (utilisateur_id = current_setting('app.current_user_id', TRUE)::INTEGER)
+    WITH CHECK (utilisateur_id = current_setting('app.current_user_id', TRUE)::INTEGER);
 
 
 -- ---------------------------------------------------------------------------
