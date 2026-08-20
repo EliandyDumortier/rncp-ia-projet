@@ -55,6 +55,7 @@ from model_monitoring import (  # noqa: E402
 # Fixtures
 # ============================================================
 
+
 @pytest.fixture(scope="session")
 def trained_model() -> HybridRecommender:
     """
@@ -70,17 +71,13 @@ def trained_model() -> HybridRecommender:
 @pytest.fixture(scope="session")
 def auth_token() -> str:
     """Génère un token JWT valide pour les tests."""
-    return create_access_token(
-        data={"sub": "test_user", "role": "user"}
-    )
+    return create_access_token(data={"sub": "test_user", "role": "user"})
 
 
 @pytest.fixture(scope="session")
 def admin_token() -> str:
     """Génère un token JWT admin pour les tests."""
-    return create_access_token(
-        data={"sub": "admin", "role": "admin"}
-    )
+    return create_access_token(data={"sub": "admin", "role": "admin"})
 
 
 @pytest.fixture(scope="session")
@@ -117,6 +114,7 @@ def admin_headers(admin_token: str) -> dict[str, str]:
 # ============================================================
 # 1. Tests du endpoint /health
 # ============================================================
+
 
 class TestHealthEndpoint:
     """Tests du health check de l'API."""
@@ -166,12 +164,14 @@ class TestHealthEndpoint:
         data = response.json()
         # Vérification que le timestamp est parsable
         from datetime import datetime
+
         datetime.fromisoformat(data["timestamp"])
 
 
 # ============================================================
 # 2. Tests du endpoint /metrics
 # ============================================================
+
 
 class TestMetricsEndpoint:
     """Tests du endpoint Prometheus /metrics."""
@@ -203,6 +203,7 @@ class TestMetricsEndpoint:
 # ============================================================
 # 3. Tests du endpoint /auth/token
 # ============================================================
+
 
 class TestAuthEndpoint:
     """Tests de l'authentification JWT."""
@@ -253,6 +254,7 @@ class TestAuthEndpoint:
     def test_token_is_decodable(self, client: TestClient) -> None:
         """Le token JWT retourné doit être décodable."""
         import jwt as pyjwt
+
         response = client.post(
             "/auth/token",
             json={"username": "user", "password": "user123"},
@@ -273,6 +275,7 @@ class TestAuthEndpoint:
 # ============================================================
 # 4. Tests du endpoint /recommend
 # ============================================================
+
 
 class TestRecommendEndpoint:
     """Tests du endpoint de recommandation."""
@@ -460,14 +463,15 @@ class TestRecommendEndpoint:
             headers=auth_headers,
         )
         data = response.json()
-        assert data["latency_ms"] < 2000, (
-            f"Latence trop élevée : {data['latency_ms']}ms"
-        )
+        assert (
+            data["latency_ms"] < 2000
+        ), f"Latence trop élevée : {data['latency_ms']}ms"
 
 
 # ============================================================
 # 5. Tests du endpoint /predict
 # ============================================================
+
 
 class TestPredictEndpoint:
     """Tests du endpoint de prédiction de note."""
@@ -570,14 +574,15 @@ class TestPredictEndpoint:
             headers=auth_headers,
         )
         data = response.json()
-        assert data["latency_ms"] < 1000, (
-            f"Latence trop élevée : {data['latency_ms']}ms"
-        )
+        assert (
+            data["latency_ms"] < 1000
+        ), f"Latence trop élevée : {data['latency_ms']}ms"
 
 
 # ============================================================
 # 6. Tests du endpoint /model/info
 # ============================================================
+
 
 class TestModelInfoEndpoint:
     """Tests du endpoint d'information sur le modèle."""
@@ -606,6 +611,7 @@ class TestModelInfoEndpoint:
 # ============================================================
 # 7. Tests du endpoint /alerts (admin only)
 # ============================================================
+
 
 class TestAlertsEndpoint:
     """Tests du endpoint d'alertes (admin seulement)."""
@@ -642,6 +648,7 @@ class TestAlertsEndpoint:
 # ============================================================
 # 8. Tests de sécurité (OWASP)
 # ============================================================
+
 
 class TestSecurity:
     """Tests de sécurité OWASP."""
@@ -725,18 +732,15 @@ class TestSecurity:
 # 9. Tests du modèle de recommandation (unitaires)
 # ============================================================
 
+
 class TestRecommendationModel:
     """Tests unitaires du modèle de recommandation hybride."""
 
-    def test_model_trains_successfully(
-        self, trained_model: HybridRecommender
-    ) -> None:
+    def test_model_trains_successfully(self, trained_model: HybridRecommender) -> None:
         """Le modèle doit s'entraîner sans erreur."""
         assert trained_model._is_trained is True
 
-    def test_model_metrics_populated(
-        self, trained_model: HybridRecommender
-    ) -> None:
+    def test_model_metrics_populated(self, trained_model: HybridRecommender) -> None:
         """Les métriques d'entraînement doivent être renseignées."""
         metrics = trained_model.metrics
         assert metrics.num_dramas > 0
@@ -759,9 +763,7 @@ class TestRecommendationModel:
         results = trained_model.recommend(drama_id=1, top_k=5)
         assert len(results) > 0
 
-    def test_recommend_top_k_respected(
-        self, trained_model: HybridRecommender
-    ) -> None:
+    def test_recommend_top_k_respected(self, trained_model: HybridRecommender) -> None:
         """Le nombre de résultats doit respecter top_k."""
         results = trained_model.recommend(user_id=1, top_k=3)
         assert len(results) <= 3
@@ -847,9 +849,7 @@ class TestRecommendationModel:
         """Le modèle collaboratif doit être entraîné."""
         assert trained_model.collaborative_model is not None
 
-    def test_user_item_matrix_built(
-        self, trained_model: HybridRecommender
-    ) -> None:
+    def test_user_item_matrix_built(self, trained_model: HybridRecommender) -> None:
         """La matrice utilisateur-drama doit être construite."""
         assert trained_model.user_item_matrix is not None
         assert trained_model.user_item_matrix.shape[0] > 0
@@ -859,6 +859,7 @@ class TestRecommendationModel:
 # ============================================================
 # 10. Tests du monitoring
 # ============================================================
+
 
 class TestMonitoring:
     """Tests du système de monitoring Prometheus."""
@@ -918,6 +919,7 @@ class TestMonitoring:
     def test_drift_monitor_with_reference(self) -> None:
         """Le PSI doit être calculable avec une distribution de référence."""
         import numpy as np
+
         rng = np.random.RandomState(42)
         ref_preds = rng.uniform(5, 10, 500)
         drift = DriftMonitor(window_size=500)
@@ -951,6 +953,7 @@ class TestMonitoring:
     def test_alert_rules_not_empty(self) -> None:
         """Les règles d'alerte ne doivent pas être vides."""
         from model_monitoring import get_alert_rules
+
         rules = get_alert_rules()
         assert "PredictionDriftHigh" in rules
         assert "HighErrorRate" in rules
@@ -960,6 +963,7 @@ class TestMonitoring:
 # ============================================================
 # 11. Tests de performance
 # ============================================================
+
 
 class TestPerformance:
     """Tests de performance et de seuils de latence."""
@@ -1004,9 +1008,7 @@ class TestPerformance:
         assert elapsed_ms < 100, f"Latence : {elapsed_ms:.0f}ms"
         assert response.status_code == 200
 
-    def test_model_inference_under_1s(
-        self, trained_model: HybridRecommender
-    ) -> None:
+    def test_model_inference_under_1s(self, trained_model: HybridRecommender) -> None:
         """L'inférence du modèle doit prendre moins de 1 seconde."""
         start = time.time()
         trained_model.recommend(user_id=1, top_k=10)
@@ -1039,6 +1041,7 @@ class TestPerformance:
 # ============================================================
 # 12. Tests de validation des entrées (edge cases)
 # ============================================================
+
 
 class TestInputValidation:
     """Tests de validation des entrées (edge cases et cas limites)."""
@@ -1110,9 +1113,7 @@ class TestInputValidation:
         data = response.json()
         assert data["mode"] == "user"
 
-    def test_auth_oversized_username(
-        self, client: TestClient
-    ) -> None:
+    def test_auth_oversized_username(self, client: TestClient) -> None:
         """Un nom d'utilisateur trop long doit être rejeté."""
         response = client.post(
             "/auth/token",
@@ -1132,6 +1133,7 @@ class TestInputValidation:
 # ============================================================
 # 13. Tests de l'API OpenAPI
 # ============================================================
+
 
 class TestOpenAPI:
     """Tests de la spécification OpenAPI."""

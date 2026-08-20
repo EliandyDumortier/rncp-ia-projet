@@ -116,9 +116,7 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
             )
             rows = result.fetchall()
     except Exception as exc:
-        raise RuntimeError(
-            f"Error reading the kdramas table: {exc}"
-        ) from exc
+        raise RuntimeError(f"Error reading the kdramas table: {exc}") from exc
     finally:
         engine.dispose()
 

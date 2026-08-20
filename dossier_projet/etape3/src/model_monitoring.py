@@ -76,8 +76,20 @@ REQUEST_LATENCY = Histogram(
     "Latence des requêtes API en secondes.",
     labelnames=["endpoint"],
     buckets=(
-        0.005, 0.01, 0.025, 0.05, 0.075, 0.1,
-        0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.075,
+        0.1,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        2.5,
+        5.0,
+        7.5,
+        10.0,
     ),
     registry=REGISTRY,
 )
@@ -95,8 +107,17 @@ MODEL_INFERENCE_TIME = Histogram(
     "Temps d'inférence du modèle en secondes.",
     labelnames=["operation"],
     buckets=(
-        0.001, 0.005, 0.01, 0.025, 0.05, 0.1,
-        0.25, 0.5, 1.0, 2.5, 5.0,
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
     ),
     registry=REGISTRY,
 )
@@ -141,6 +162,7 @@ MODEL_INFO = Info(
 # ============================================================
 # Gestionnaire de drift (dérive de prédiction)
 # ============================================================
+
 
 class DriftMonitor:
     """
@@ -203,7 +225,9 @@ class DriftMonitor:
         hist, _ = np.histogram(preds, bins=self._bins)
         # Éviter les bins vides (ajout d'un epsilon)
         self.reference_distribution = hist / max(hist.sum(), 1) + 1e-8
-        self.reference_distribution = self.reference_distribution / self.reference_distribution.sum()
+        self.reference_distribution = (
+            self.reference_distribution / self.reference_distribution.sum()
+        )
         logger.info(
             "Distribution de référence définie avec %d prédictions.",
             len(preds),
@@ -217,10 +241,7 @@ class DriftMonitor:
         Returns:
             Valeur du PSI (float). 0.0 si pas assez de données.
         """
-        if (
-            self.reference_distribution is None
-            or len(self.current_predictions) < 50
-        ):
+        if self.reference_distribution is None or len(self.current_predictions) < 50:
             return 0.0
 
         current = np.array(list(self.current_predictions))
@@ -229,10 +250,12 @@ class DriftMonitor:
         current_dist = current_dist / current_dist.sum()
 
         # PSI = sum((current% - ref%) * ln(current% / ref%))
-        psi = float(np.sum(
-            (current_dist - self.reference_distribution)
-            * np.log(current_dist / self.reference_distribution)
-        ))
+        psi = float(
+            np.sum(
+                (current_dist - self.reference_distribution)
+                * np.log(current_dist / self.reference_distribution)
+            )
+        )
 
         return psi
 
@@ -256,9 +279,11 @@ class DriftMonitor:
 # Gestionnaire de métriques global
 # ============================================================
 
+
 @dataclass
 class MonitoringConfig:
     """Configuration du monitoring."""
+
     enable_drift_detection: bool = True
     drift_window_size: int = 1000
     alert_psi_threshold: float = 0.25
@@ -288,9 +313,7 @@ class ModelMonitor:
                     défaut si None.
         """
         self.config = config or MonitoringConfig()
-        self.drift_monitor = DriftMonitor(
-            window_size=self.config.drift_window_size
-        )
+        self.drift_monitor = DriftMonitor(window_size=self.config.drift_window_size)
         self._request_times: deque[float] = deque(maxlen=10000)
         self._error_times: deque[float] = deque(maxlen=10000)
 
@@ -310,9 +333,7 @@ class ModelMonitor:
             status: Code de statut HTTP.
             latency: Latence en secondes.
         """
-        REQUEST_COUNT.labels(
-            endpoint=endpoint, method=method, status=str(status)
-        ).inc()
+        REQUEST_COUNT.labels(endpoint=endpoint, method=method, status=str(status)).inc()
         REQUEST_LATENCY.labels(endpoint=endpoint).observe(latency)
         self._request_times.append(time.time())
 
@@ -339,17 +360,11 @@ class ModelMonitor:
             mode: Mode d'inférence (recommend, predict).
             inference_time: Temps d'inférence en secondes.
         """
-        PREDICTION_COUNT.labels(
-            model_type=model_type, mode=mode
-        ).inc()
-        PREDICTION_SCORE_DISTRIBUTION.labels(
-            model_type=model_type
-        ).observe(score)
+        PREDICTION_COUNT.labels(model_type=model_type, mode=mode).inc()
+        PREDICTION_SCORE_DISTRIBUTION.labels(model_type=model_type).observe(score)
 
         if inference_time > 0:
-            MODEL_INFERENCE_TIME.labels(operation=mode).observe(
-                inference_time
-            )
+            MODEL_INFERENCE_TIME.labels(operation=mode).observe(inference_time)
 
         if self.config.enable_drift_detection:
             self.drift_monitor.add_prediction(score)
@@ -388,9 +403,7 @@ class ModelMonitor:
             }
         )
 
-    def update_drift_metric(
-        self, model_type: str = "HybridRecommender"
-    ) -> float:
+    def update_drift_metric(self, model_type: str = "HybridRecommender") -> float:
         """
         Met à jour la métrique de drift et retourne la valeur du PSI.
 
@@ -457,7 +470,8 @@ class ModelMonitor:
                         "message": f"High prediction drift: PSI = {psi:.4f}",
                         "value": psi,
                         "threshold": self.config.alert_psi_threshold,
-                        "action": "Retrain the model with recent data.",                    }
+                        "action": "Retrain the model with recent data.",
+                    }
                 )
 
         # --- Alerte 2 : Taux d'erreur ---
@@ -470,7 +484,8 @@ class ModelMonitor:
                     "message": f"High error rate: {error_rate:.2%}",
                     "value": error_rate,
                     "threshold": self.config.alert_error_rate_threshold,
-                    "action": "Check logs and API status.",                }
+                    "action": "Check logs and API status.",
+                }
             )
 
         return alerts
@@ -491,11 +506,21 @@ class ModelMonitor:
         Returns:
             Dictionnaire avec les indicateurs clés.
         """
-        psi = self.drift_monitor.compute_psi() if self.config.enable_drift_detection else 0.0
-        drift_level = self.drift_monitor.get_drift_level() if self.config.enable_drift_detection else "disabled"
+        psi = (
+            self.drift_monitor.compute_psi()
+            if self.config.enable_drift_detection
+            else 0.0
+        )
+        drift_level = (
+            self.drift_monitor.get_drift_level()
+            if self.config.enable_drift_detection
+            else "disabled"
+        )
 
         return {
-            "model_status": "operational" if MODEL_STATUS._value.get() == 1 else "unavailable",
+            "model_status": (
+                "operational" if MODEL_STATUS._value.get() == 1 else "unavailable"
+            ),
             "total_requests": len(self._request_times),
             "total_errors": len(self._error_times),
             "error_rate": round(self.get_error_rate(), 4),
@@ -640,9 +665,15 @@ GRAFANA_DASHBOARD = {
                 "type": "graph",
                 "datasource": "Prometheus",
                 "targets": [
-                    {"expr": 'histogram_quantile(0.50, sum(rate(kdrama_api_request_latency_seconds_bucket[5m])) by (le))'},
-                    {"expr": 'histogram_quantile(0.95, sum(rate(kdrama_api_request_latency_seconds_bucket[5m])) by (le))'},
-                    {"expr": 'histogram_quantile(0.99, sum(rate(kdrama_api_request_latency_seconds_bucket[5m])) by (le))'},
+                    {
+                        "expr": "histogram_quantile(0.50, sum(rate(kdrama_api_request_latency_seconds_bucket[5m])) by (le))"
+                    },
+                    {
+                        "expr": "histogram_quantile(0.95, sum(rate(kdrama_api_request_latency_seconds_bucket[5m])) by (le))"
+                    },
+                    {
+                        "expr": "histogram_quantile(0.99, sum(rate(kdrama_api_request_latency_seconds_bucket[5m])) by (le))"
+                    },
                 ],
             },
             {
@@ -674,7 +705,9 @@ GRAFANA_DASHBOARD = {
                 "type": "histogram",
                 "datasource": "Prometheus",
                 "targets": [
-                    {"expr": "sum(rate(kdrama_model_prediction_score_distribution_bucket[5m])) by (le)"},
+                    {
+                        "expr": "sum(rate(kdrama_model_prediction_score_distribution_bucket[5m])) by (le)"
+                    },
                 ],
             },
             {
@@ -683,7 +716,9 @@ GRAFANA_DASHBOARD = {
                 "type": "graph",
                 "datasource": "Prometheus",
                 "targets": [
-                    {"expr": "sum(rate(kdrama_api_errors_total[5m])) / sum(rate(kdrama_api_requests_total[5m]))"},
+                    {
+                        "expr": "sum(rate(kdrama_api_errors_total[5m])) / sum(rate(kdrama_api_requests_total[5m]))"
+                    },
                 ],
             },
             {
@@ -701,7 +736,9 @@ GRAFANA_DASHBOARD = {
                 "type": "graph",
                 "datasource": "Prometheus",
                 "targets": [
-                    {"expr": 'histogram_quantile(0.95, sum(rate(kdrama_model_inference_time_seconds_bucket[5m])) by (le))'},
+                    {
+                        "expr": "histogram_quantile(0.95, sum(rate(kdrama_model_inference_time_seconds_bucket[5m])) by (le))"
+                    },
                 ],
             },
         ],
