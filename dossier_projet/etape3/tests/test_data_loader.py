@@ -25,7 +25,9 @@ class _FakeResult:
 
 
 class _FakeConnection:
-    def __init__(self, result: _FakeResult | None = None, exc: Exception | None = None) -> None:
+    def __init__(
+        self, result: _FakeResult | None = None, exc: Exception | None = None
+    ) -> None:
         self._result = result
         self._exc = exc
 
@@ -60,7 +62,9 @@ def test_get_database_url_prefers_supabase(monkeypatch: pytest.MonkeyPatch) -> N
     assert data_loader._get_database_url() == "postgresql://supabase"
 
 
-def test_get_database_url_falls_back_to_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_database_url_falls_back_to_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("SUPABASE_DB_URL", raising=False)
     monkeypatch.setenv("DATABASE_URL", "postgresql://fallback")
     assert data_loader._get_database_url() == "postgresql://fallback"
@@ -76,7 +80,18 @@ def test_get_database_url_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -
 def test_load_dramas_from_etape1_success(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = [
         (1, "Drama A", None, None, 8.5, 100, "2020-01-01", "SBS", "Actor A", "tag1"),
-        (2, "Drama B", "Synopsis B", "Action", 7.9, 80, "2021-01-01", "tvN", "Actor B", "tag2"),
+        (
+            2,
+            "Drama B",
+            "Synopsis B",
+            "Action",
+            7.9,
+            80,
+            "2021-01-01",
+            "tvN",
+            "Actor B",
+            "tag2",
+        ),
     ]
     cols = [
         "drama_id",
@@ -91,7 +106,9 @@ def test_load_dramas_from_etape1_success(monkeypatch: pytest.MonkeyPatch) -> Non
         "tags",
     ]
     fake_engine = _FakeEngine(_FakeConnection(result=_FakeResult(rows, cols)))
-    monkeypatch.setattr(data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine)
+    monkeypatch.setattr(
+        data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine
+    )
 
     df = data_loader.load_dramas_from_etape1(db_url="postgresql://fake")
 
@@ -102,9 +119,13 @@ def test_load_dramas_from_etape1_success(monkeypatch: pytest.MonkeyPatch) -> Non
     assert fake_engine.disposed is True
 
 
-def test_load_dramas_from_etape1_raises_on_query_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_dramas_from_etape1_raises_on_query_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake_engine = _FakeEngine(_FakeConnection(exc=Exception("db down")))
-    monkeypatch.setattr(data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine)
+    monkeypatch.setattr(
+        data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine
+    )
 
     with pytest.raises(RuntimeError, match="Error reading the kdramas table"):
         data_loader.load_dramas_from_etape1(db_url="postgresql://fake")
@@ -112,10 +133,16 @@ def test_load_dramas_from_etape1_raises_on_query_error(monkeypatch: pytest.Monke
     assert fake_engine.disposed is True
 
 
-def test_load_dramas_from_etape1_raises_on_empty_table(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_result = _FakeResult([], ["drama_id", "title", "synopsis", "genres", "note_moyenne"])
+def test_load_dramas_from_etape1_raises_on_empty_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_result = _FakeResult(
+        [], ["drama_id", "title", "synopsis", "genres", "note_moyenne"]
+    )
     fake_engine = _FakeEngine(_FakeConnection(result=fake_result))
-    monkeypatch.setattr(data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine)
+    monkeypatch.setattr(
+        data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine
+    )
 
     with pytest.raises(RuntimeError, match="kdramas table is empty"):
         data_loader.load_dramas_from_etape1(db_url="postgresql://fake")
@@ -175,7 +202,9 @@ def test_load_real_data_orchestration(monkeypatch: pytest.MonkeyPatch) -> None:
         return interactions_df
 
     monkeypatch.setattr(data_loader, "load_dramas_from_etape1", fake_load)
-    monkeypatch.setattr(data_loader, "generate_interactions_from_catalog", fake_generate)
+    monkeypatch.setattr(
+        data_loader, "generate_interactions_from_catalog", fake_generate
+    )
 
     got_dramas, got_interactions = data_loader.load_real_data(
         db_url="postgresql://fake",
