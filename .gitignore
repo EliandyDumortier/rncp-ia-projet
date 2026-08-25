@@ -224,3 +224,9 @@ dossier_projet/etape1/data/
 
 # Project-specific generated artifacts (etape2)
 dossier_projet/etape2/src/veille_historique.json
+
+# Project-specific generated artifacts (etape3)
+dossier_projet/etape3/src/model_artifacts/
+
+# Personal project-specific generated artifacts
+dossier_perso/
