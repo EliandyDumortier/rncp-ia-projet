@@ -267,6 +267,11 @@ jobs:
           name: model-artifacts
           path: ${{ env.WORKING_DIR }}/model_artifacts/
 
+      - name: Inject trained artifacts into image source tree
+        run: |
+          mkdir -p src/model_artifacts
+          cp -r model_artifacts/. src/model_artifacts/
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 

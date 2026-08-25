@@ -61,7 +61,12 @@ logger = logging.getLogger(__name__)
 # Configuration (variables d'environnement)
 # ============================================================
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_THIS_FILE = Path(__file__).resolve()
+if "dossier_projet" in _THIS_FILE.parts:
+    _PROJECT_ROOT = _THIS_FILE.parents[3]
+else:
+    # En conteneur Docker, les sources sont sous /app/src.
+    _PROJECT_ROOT = _THIS_FILE.parents[1]
 for _env_path in (
     Path.cwd() / ".env",
     _PROJECT_ROOT / ".env",
