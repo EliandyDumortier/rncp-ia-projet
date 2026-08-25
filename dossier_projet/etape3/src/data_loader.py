@@ -49,6 +49,77 @@ for _env_path in (
 RANDOM_STATE = 42
 
 
+def _is_env_true(var_name: str, default: bool = False) -> bool:
+    """Interprète une variable d'environnement booléenne."""
+    value = os.getenv(var_name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_snapshot_path() -> Path:
+    """Retourne le chemin du snapshot local de catalogue."""
+    custom_path = os.getenv("LOCAL_DATA_SNAPSHOT_PATH")
+    if custom_path:
+        return Path(custom_path).expanduser().resolve()
+
+    return (
+        _PROJECT_ROOT
+        / "dossier_projet"
+        / "etape1"
+        / "data"
+        / "clean"
+        / "kdramas_clean.csv"
+    )
+
+
+def _load_dramas_from_snapshot(snapshot_path: Path | None = None) -> pd.DataFrame:
+    """Charge le catalogue depuis un snapshot CSV local compatible CI."""
+    path = snapshot_path or _get_snapshot_path()
+    if not path.exists():
+        raise RuntimeError(f"Local snapshot not found: {path}")
+
+    raw_df = pd.read_csv(path)
+
+    # Harmonise les colonnes du snapshot étape 1 vers le schéma attendu.
+    dramas_df = pd.DataFrame(
+        {
+            "drama_id": list(range(1, len(raw_df) + 1)),
+            "title": raw_df.get("titre", ""),
+            "synopsis": raw_df.get("synopsis", ""),
+            "genres": raw_df.get("genres", ""),
+            "note_moyenne": pd.to_numeric(
+                raw_df.get("note_moyenne", pd.Series(dtype=float)),
+                errors="coerce",
+            ),
+            "nb_votes": pd.to_numeric(
+                raw_df.get("nb_votes", pd.Series(dtype=float)),
+                errors="coerce",
+            ),
+            "date_diffusion": raw_df.get("date_diffusion", pd.Series(dtype=object)),
+            "reseaux_diffusion": raw_df.get(
+                "reseaux_diffusion", pd.Series(dtype=object)
+            ),
+            "acteurs": raw_df.get("acteurs", pd.Series(dtype=object)),
+            "tags": raw_df.get("tags", pd.Series(dtype=object)),
+        }
+    )
+
+    dramas_df["title"] = dramas_df["title"].fillna("").astype(str)
+    dramas_df = dramas_df[dramas_df["title"].str.strip() != ""].reset_index(drop=True)
+    dramas_df["drama_id"] = list(range(1, len(dramas_df) + 1))
+    dramas_df["synopsis"] = dramas_df["synopsis"].fillna("")
+    dramas_df["genres"] = dramas_df["genres"].fillna("")
+
+    if dramas_df.empty:
+        raise RuntimeError("Local snapshot is empty after cleaning.")
+
+    logger.info(
+        "Catalogue chargé depuis snapshot local: %s (%d K-Dramas)", path, len(dramas_df)
+    )
+    return dramas_df
+
+
 def _get_database_url() -> str:
     """Récupère l'URL de connexion PostgreSQL depuis les variables d'environnement.
 
@@ -89,7 +160,21 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
     Raises:
         RuntimeError: Si la table kdramas est vide ou introuvable.
     """
-    url = db_url or _get_database_url()
+    if _is_env_true("USE_LOCAL_DATA_SNAPSHOT", default=False):
+        return _load_dramas_from_snapshot()
+
+    allow_fallback_on_error = _is_env_true(
+        "FALLBACK_TO_LOCAL_ON_DB_ERROR", default=False
+    )
+
+    try:
+        url = db_url or _get_database_url()
+    except RuntimeError as exc:
+        if allow_fallback_on_error:
+            logger.warning("DB URL unavailable, fallback snapshot activé: %s", exc)
+            return _load_dramas_from_snapshot()
+        raise
+
     engine = create_engine(url, pool_pre_ping=True)
 
     try:
@@ -116,11 +201,17 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
             )
             rows = result.fetchall()
     except Exception as exc:
+        if allow_fallback_on_error:
+            logger.warning("DB inaccessible, fallback snapshot activé: %s", exc)
+            return _load_dramas_from_snapshot()
         raise RuntimeError(f"Error reading the kdramas table: {exc}") from exc
     finally:
         engine.dispose()
 
     if not rows:
+        if allow_fallback_on_error:
+            logger.warning("Table kdramas vide, fallback snapshot activé")
+            return _load_dramas_from_snapshot()
         raise RuntimeError("The kdramas table is empty.")
 
     columns = list(result.keys())

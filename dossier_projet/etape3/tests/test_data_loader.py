@@ -148,6 +148,64 @@ def test_load_dramas_from_etape1_raises_on_empty_table(
         data_loader.load_dramas_from_etape1(db_url="postgresql://fake")
 
 
+def test_load_dramas_from_etape1_uses_snapshot_when_flag_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot_df = pd.DataFrame(
+        {
+            "drama_id": [1, 2],
+            "title": ["Snapshot A", "Snapshot B"],
+            "synopsis": ["a", "b"],
+            "genres": ["Drama", "Comedy"],
+            "note_moyenne": [7.1, 8.3],
+        }
+    )
+
+    monkeypatch.setenv("USE_LOCAL_DATA_SNAPSHOT", "true")
+    monkeypatch.setattr(
+        data_loader,
+        "_load_dramas_from_snapshot",
+        lambda *_args, **_kwargs: snapshot_df,
+    )
+
+    def _unexpected_engine(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("create_engine should not be called in snapshot mode")
+
+    monkeypatch.setattr(data_loader, "create_engine", _unexpected_engine)
+
+    got = data_loader.load_dramas_from_etape1(db_url="postgresql://fake")
+    assert got is snapshot_df
+
+
+def test_load_dramas_from_etape1_fallback_on_db_error_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot_df = pd.DataFrame(
+        {
+            "drama_id": [1],
+            "title": ["Snapshot"],
+            "synopsis": ["syn"],
+            "genres": ["Drama"],
+            "note_moyenne": [8.0],
+        }
+    )
+
+    fake_engine = _FakeEngine(_FakeConnection(exc=Exception("db down")))
+    monkeypatch.setenv("FALLBACK_TO_LOCAL_ON_DB_ERROR", "true")
+    monkeypatch.setattr(
+        data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine
+    )
+    monkeypatch.setattr(
+        data_loader,
+        "_load_dramas_from_snapshot",
+        lambda *_args, **_kwargs: snapshot_df,
+    )
+
+    got = data_loader.load_dramas_from_etape1(db_url="postgresql://fake")
+    assert got is snapshot_df
+    assert fake_engine.disposed is True
+
+
 def test_generate_interactions_requires_note_moyenne_column() -> None:
     dramas_df = pd.DataFrame({"drama_id": [1, 2], "title": ["A", "B"]})
     with pytest.raises(ValueError, match="note_moyenne"):

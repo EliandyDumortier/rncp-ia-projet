@@ -184,6 +184,8 @@ jobs:
       - name: Train recommendation model
         env:
           MODEL_OUTPUT_DIR: model_artifacts
+          USE_LOCAL_DATA_SNAPSHOT: "true"
+          FALLBACK_TO_LOCAL_ON_DB_ERROR: "true"
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
@@ -194,7 +196,7 @@ jobs:
           from recommendation_model import HybridRecommender, load_real_data
           import json
 
-          print('=== Model training (CI) — real data from step 1 ===')
+          print('=== Model training (CI) — snapshot fallback enabled ===')
           dramas_df, interactions_df = load_real_data(num_users=50)
           model = HybridRecommender(alpha=0.6)
           metrics = model.train(dramas_df, interactions_df)
