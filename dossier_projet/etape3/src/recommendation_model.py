@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +39,7 @@ RANDOM_STATE = 42
 # ============================================================
 # Structures de données
 # ============================================================
+
 
 @dataclass
 class RecommendationResult:
@@ -88,6 +88,7 @@ class ModelMetrics:
 # Modèle de recommandation hybride
 # ============================================================
 
+
 class HybridRecommender:
     """
     Modèle de recommandation hybride pour K-Dramas.
@@ -127,9 +128,7 @@ class HybridRecommender:
                                   pour les embeddings de texte.
         """
         if not 0.0 <= alpha <= 1.0:
-            raise ValueError(
-                f"alpha doit être entre 0 et 1, reçu : {alpha}"
-            )
+            raise ValueError(f"alpha doit être entre 0 et 1, reçu : {alpha}")
 
         self.alpha = alpha
         self.embedding_model_name = embedding_model_name
@@ -236,17 +235,12 @@ class HybridRecommender:
 
         missing_drama = required_drama_cols - set(dramas_df.columns)
         if missing_drama:
-            raise ValueError(
-                f"Colonnes manquantes dans dramas_df : {missing_drama}"
-            )
+            raise ValueError(f"Colonnes manquantes dans dramas_df : {missing_drama}")
 
-        missing_interaction = required_interaction_cols - set(
-            interactions_df.columns
-        )
+        missing_interaction = required_interaction_cols - set(interactions_df.columns)
         if missing_interaction:
             raise ValueError(
-                f"Colonnes manquantes dans interactions_df : "
-                f"{missing_interaction}"
+                f"Colonnes manquantes dans interactions_df : " f"{missing_interaction}"
             )
 
         # Vérification des types de rating
@@ -263,9 +257,7 @@ class HybridRecommender:
         try:
             from sentence_transformers import SentenceTransformer
 
-            self._embedding_model = SentenceTransformer(
-                self.embedding_model_name
-            )
+            self._embedding_model = SentenceTransformer(self.embedding_model_name)
             logger.info(
                 "Modèle sentence-transformers chargé : %s",
                 self.embedding_model_name,
@@ -334,9 +326,7 @@ class HybridRecommender:
 
         # Utilisation de la métrique cosine pour la similarité entre utilisateurs
         self.collaborative_model = NearestNeighbors(
-            n_neighbors=min(
-                20, self.user_item_matrix.shape[0]
-            ),
+            n_neighbors=min(20, self.user_item_matrix.shape[0]),
             metric="cosine",
             algorithm="brute",
         )
@@ -380,9 +370,7 @@ class HybridRecommender:
             raise ValueError(f"top_k doit être > 0, reçu : {top_k}")
 
         if user_id is None and drama_id is None:
-            raise ValueError(
-                "Au moins un de user_id ou drama_id doit être fourni."
-            )
+            raise ValueError("Au moins un de user_id ou drama_id doit être fourni.")
 
         if user_id is not None:
             return self._recommend_for_user(user_id, top_k)
@@ -504,9 +492,7 @@ class HybridRecommender:
             content_scores = content_scores / content_scores.max() * 10
 
         # --- Étape 4 : Combinaison ---
-        final_scores = (
-            self.alpha * content_scores + (1 - self.alpha) * collab_scores
-        )
+        final_scores = self.alpha * content_scores + (1 - self.alpha) * collab_scores
         final_scores = final_scores.sort_values(ascending=False).head(top_k)
 
         results: list[RecommendationResult] = []
@@ -555,9 +541,7 @@ class HybridRecommender:
 
         # --- Score content-based : similarité cosinus ---
         content_sims = self.content_embeddings @ self.content_embeddings[idx]
-        content_scores = pd.Series(
-            content_sims, index=drama_ids
-        )
+        content_scores = pd.Series(content_sims, index=drama_ids)
         # Exclure le drama lui-même
         content_scores = content_scores.drop(drama_id, errors="ignore")
 
@@ -583,8 +567,7 @@ class HybridRecommender:
 
         # --- Combinaison ---
         final_scores = (
-            self.alpha * content_scores * 10
-            + (1 - self.alpha) * collab_scores
+            self.alpha * content_scores * 10 + (1 - self.alpha) * collab_scores
         )
         final_scores = final_scores.sort_values(ascending=False).head(top_k)
 
@@ -644,9 +627,7 @@ class HybridRecommender:
 
         return results
 
-    def _compute_content_prediction(
-        self, user_id: int, drama_id: int
-    ) -> float:
+    def _compute_content_prediction(self, user_id: int, drama_id: int) -> float:
         """
         Calcule le score prédit basé sur le contenu pour un couple
         utilisateur-drama.
@@ -682,9 +663,7 @@ class HybridRecommender:
         for did, rating in rated_dramas.items():
             if did in drama_ids:
                 didx = drama_ids.index(did)
-                sim = float(
-                    np.dot(target_emb, self.content_embeddings[didx])
-                )
+                sim = float(np.dot(target_emb, self.content_embeddings[didx]))
                 weighted_sum += sim * rating
                 weight_total += abs(sim)
 
@@ -693,9 +672,7 @@ class HybridRecommender:
 
         return float(np.clip(weighted_sum / weight_total, 0.0, 10.0))
 
-    def _compute_collaborative_prediction(
-        self, user_id: int, drama_id: int
-    ) -> float:
+    def _compute_collaborative_prediction(self, user_id: int, drama_id: int) -> float:
         """
         Calcule le score prédit basé sur le filtrage collaboratif.
 
@@ -706,10 +683,7 @@ class HybridRecommender:
         Returns:
             Score entre 0 et 10.
         """
-        if (
-            self.user_item_matrix is None
-            or self.collaborative_model is None
-        ):
+        if self.user_item_matrix is None or self.collaborative_model is None:
             return 5.0
 
         if user_id not in self.user_item_matrix.index:
@@ -790,9 +764,7 @@ class HybridRecommender:
         model_path = model_dir / "model.joblib"
 
         if not model_path.exists():
-            raise FileNotFoundError(
-                f"Fichier modèle introuvable : {model_path}"
-            )
+            raise FileNotFoundError(f"Fichier modèle introuvable : {model_path}")
 
         model = joblib.load(model_path)
 
@@ -814,9 +786,7 @@ class HybridRecommender:
     def _check_trained(self) -> None:
         """Vérifie que le modèle a été entraîné."""
         if not self._is_trained:
-            raise RuntimeError(
-                "Le modèle n'est pas entraîné. Appelez train() d'abord."
-            )
+            raise RuntimeError("Le modèle n'est pas entraîné. Appelez train() d'abord.")
 
     def _get_drama_info(self, drama_id: int) -> dict[str, Any] | None:
         """Récupère les métadonnées d'un drama par son ID."""
@@ -894,7 +864,9 @@ class HybridRecommender:
                     else:
                         parsed_genres = [str(decoded)]
                 except json.JSONDecodeError:
-                    parsed_genres = [g.strip() for g in text_value.split(",") if g.strip()]
+                    parsed_genres = [
+                        g.strip() for g in text_value.split(",") if g.strip()
+                    ]
             else:
                 parsed_genres = [g.strip() for g in text_value.split(",") if g.strip()]
         else:
@@ -933,6 +905,7 @@ class HybridRecommender:
 # Fallback TF-IDF (si sentence-transformers indisponible)
 # ============================================================
 
+
 class _TFIDFFallback:
     """
     Fallback utilisant TF-IDF (scikit-learn) si sentence-transformers
@@ -968,6 +941,7 @@ class _TFIDFFallback:
 # ============================================================
 # Chargement des données réelles depuis l'étape 1
 # ============================================================
+
 
 def load_real_data(
     db_url: str | None = None,

@@ -36,7 +36,12 @@ from sqlalchemy import create_engine, text
 logger = logging.getLogger(__name__)
 
 # Charge les variables de l'étape 1 lorsque le script est lancé depuis l'étape 3.
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_THIS_FILE = Path(__file__).resolve()
+if "dossier_projet" in _THIS_FILE.parts:
+    _PROJECT_ROOT = _THIS_FILE.parents[3]
+else:
+    # En conteneur Docker, les sources sont sous /app/src.
+    _PROJECT_ROOT = _THIS_FILE.parents[1]
 for _env_path in (
     Path.cwd() / ".env",
     _PROJECT_ROOT / ".env",
@@ -47,6 +52,162 @@ for _env_path in (
 
 # Graine aléatoire pour la reproductibilité
 RANDOM_STATE = 42
+
+
+def _is_env_true(var_name: str, default: bool = False) -> bool:
+    """Interprète une variable d'environnement booléenne."""
+    value = os.getenv(var_name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_snapshot_path() -> Path:
+    """Retourne le chemin du snapshot local de catalogue."""
+    custom_path = os.getenv("LOCAL_DATA_SNAPSHOT_PATH")
+    if custom_path:
+        return Path(custom_path).expanduser().resolve()
+
+    return (
+        _PROJECT_ROOT
+        / "dossier_projet"
+        / "etape1"
+        / "data"
+        / "clean"
+        / "kdramas_clean.csv"
+    )
+
+
+def _load_embedded_catalog() -> pd.DataFrame:
+    """Construit un mini-catalogue embarqué pour les environnements CI isolés."""
+    seed_catalog = [
+        {
+            "title": "Crash Landing on You",
+            "synopsis": "A South Korean heiress crash-lands in North Korea.",
+            "genres": "Romance, Drama",
+            "note_moyenne": 8.8,
+        },
+        {
+            "title": "Kingdom",
+            "synopsis": "A crown prince investigates a mysterious plague.",
+            "genres": "Thriller, Historical",
+            "note_moyenne": 8.5,
+        },
+        {
+            "title": "Goblin",
+            "synopsis": "An immortal seeks his destined bride to end his curse.",
+            "genres": "Fantasy, Romance",
+            "note_moyenne": 8.7,
+        },
+        {
+            "title": "Signal",
+            "synopsis": "Detectives communicate across time using an old radio.",
+            "genres": "Crime, Thriller",
+            "note_moyenne": 8.6,
+        },
+        {
+            "title": "Reply 1988",
+            "synopsis": "Families and friends grow together in a Seoul neighborhood.",
+            "genres": "Family, Comedy",
+            "note_moyenne": 9.0,
+        },
+        {
+            "title": "Itaewon Class",
+            "synopsis": "An ex-con opens a pub to challenge a powerful food company.",
+            "genres": "Drama, Business",
+            "note_moyenne": 8.2,
+        },
+        {
+            "title": "Vincenzo",
+            "synopsis": "A Korean-Italian consigliere fights corruption in Seoul.",
+            "genres": "Action, Dark Comedy",
+            "note_moyenne": 8.4,
+        },
+        {
+            "title": "My Mister",
+            "synopsis": "Two struggling souls find comfort in each other.",
+            "genres": "Drama, Slice of Life",
+            "note_moyenne": 9.1,
+        },
+        {
+            "title": "Hospital Playlist",
+            "synopsis": "Five doctor friends navigate life and work in a hospital.",
+            "genres": "Medical, Friendship",
+            "note_moyenne": 8.9,
+        },
+        {
+            "title": "Flower of Evil",
+            "synopsis": "A detective suspects her husband hides a dark past.",
+            "genres": "Mystery, Romance",
+            "note_moyenne": 8.6,
+        },
+    ]
+
+    dramas_df = pd.DataFrame(seed_catalog)
+    dramas_df.insert(0, "drama_id", list(range(1, len(dramas_df) + 1)))
+    dramas_df["nb_votes"] = 1000
+    dramas_df["date_diffusion"] = "2020-01-01"
+    dramas_df["reseaux_diffusion"] = "tvN"
+    dramas_df["acteurs"] = "[]"
+    dramas_df["tags"] = "[]"
+    dramas_df["synopsis"] = dramas_df["synopsis"].fillna("")
+    dramas_df["genres"] = dramas_df["genres"].fillna("")
+
+    logger.warning(
+        "Using embedded K-Drama catalog fallback (%d rows). "
+        "Use SUPABASE_DB_URL/DATABASE_URL or LOCAL_DATA_SNAPSHOT_PATH for full data.",
+        len(dramas_df),
+    )
+    return dramas_df
+
+
+def _load_dramas_from_snapshot(snapshot_path: Path | None = None) -> pd.DataFrame:
+    """Charge le catalogue depuis un snapshot CSV local compatible CI."""
+    path = snapshot_path or _get_snapshot_path()
+    if not path.exists():
+        logger.warning("Local snapshot not found: %s", path)
+        return _load_embedded_catalog()
+
+    raw_df = pd.read_csv(path)
+
+    # Harmonise les colonnes du snapshot étape 1 vers le schéma attendu.
+    dramas_df = pd.DataFrame(
+        {
+            "drama_id": list(range(1, len(raw_df) + 1)),
+            "title": raw_df.get("titre", ""),
+            "synopsis": raw_df.get("synopsis", ""),
+            "genres": raw_df.get("genres", ""),
+            "note_moyenne": pd.to_numeric(
+                raw_df.get("note_moyenne", pd.Series(dtype=float)),
+                errors="coerce",
+            ),
+            "nb_votes": pd.to_numeric(
+                raw_df.get("nb_votes", pd.Series(dtype=float)),
+                errors="coerce",
+            ),
+            "date_diffusion": raw_df.get("date_diffusion", pd.Series(dtype=object)),
+            "reseaux_diffusion": raw_df.get(
+                "reseaux_diffusion", pd.Series(dtype=object)
+            ),
+            "acteurs": raw_df.get("acteurs", pd.Series(dtype=object)),
+            "tags": raw_df.get("tags", pd.Series(dtype=object)),
+        }
+    )
+
+    dramas_df["title"] = dramas_df["title"].fillna("").astype(str)
+    dramas_df = dramas_df[dramas_df["title"].str.strip() != ""].reset_index(drop=True)
+    dramas_df["drama_id"] = list(range(1, len(dramas_df) + 1))
+    dramas_df["synopsis"] = dramas_df["synopsis"].fillna("")
+    dramas_df["genres"] = dramas_df["genres"].fillna("")
+
+    if dramas_df.empty:
+        logger.warning("Local snapshot is empty after cleaning: %s", path)
+        return _load_embedded_catalog()
+
+    logger.info(
+        "Catalogue chargé depuis snapshot local: %s (%d K-Dramas)", path, len(dramas_df)
+    )
+    return dramas_df
 
 
 def _get_database_url() -> str:
@@ -89,7 +250,21 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
     Raises:
         RuntimeError: Si la table kdramas est vide ou introuvable.
     """
-    url = db_url or _get_database_url()
+    if _is_env_true("USE_LOCAL_DATA_SNAPSHOT", default=False):
+        return _load_dramas_from_snapshot()
+
+    allow_fallback_on_error = _is_env_true(
+        "FALLBACK_TO_LOCAL_ON_DB_ERROR", default=False
+    )
+
+    try:
+        url = db_url or _get_database_url()
+    except RuntimeError as exc:
+        if allow_fallback_on_error:
+            logger.warning("DB URL unavailable, fallback snapshot activé: %s", exc)
+            return _load_dramas_from_snapshot()
+        raise
+
     engine = create_engine(url, pool_pre_ping=True)
 
     try:
@@ -116,13 +291,17 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
             )
             rows = result.fetchall()
     except Exception as exc:
-        raise RuntimeError(
-            f"Error reading the kdramas table: {exc}"
-        ) from exc
+        if allow_fallback_on_error:
+            logger.warning("DB inaccessible, fallback snapshot activé: %s", exc)
+            return _load_dramas_from_snapshot()
+        raise RuntimeError(f"Error reading the kdramas table: {exc}") from exc
     finally:
         engine.dispose()
 
     if not rows:
+        if allow_fallback_on_error:
+            logger.warning("Table kdramas vide, fallback snapshot activé")
+            return _load_dramas_from_snapshot()
         raise RuntimeError("The kdramas table is empty.")
 
     columns = list(result.keys())

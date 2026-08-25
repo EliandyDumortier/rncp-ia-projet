@@ -31,7 +31,7 @@ import jwt
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -61,7 +61,12 @@ logger = logging.getLogger(__name__)
 # Configuration (variables d'environnement)
 # ============================================================
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_THIS_FILE = Path(__file__).resolve()
+if "dossier_projet" in _THIS_FILE.parts:
+    _PROJECT_ROOT = _THIS_FILE.parents[3]
+else:
+    # En conteneur Docker, les sources sont sous /app/src.
+    _PROJECT_ROOT = _THIS_FILE.parents[1]
 for _env_path in (
     Path.cwd() / ".env",
     _PROJECT_ROOT / ".env",
@@ -114,14 +119,17 @@ bearer_scheme = HTTPBearer(auto_error=False)
 # Modèles Pydantic (validation des entrées/sorties)
 # ============================================================
 
+
 class TokenRequest(BaseModel):
     """Modèle de requête pour l'authentification."""
+
     username: str = Field(..., min_length=1, max_length=50, description="Username")
     password: str = Field(..., min_length=1, max_length=200, description="Password")
 
 
 class TokenResponse(BaseModel):
     """Modèle de réponse contenant le token JWT."""
+
     access_token: str = Field(..., description="JWT token")
     token_type: str = Field(default="bearer", description="Token type")
     expires_in: int = Field(..., description="Validity duration in seconds")
@@ -135,6 +143,7 @@ class RecommendRequest(BaseModel):
       - user_id fourni : recommandations personnalisées pour l'utilisateur.
       - drama_id fourni : dramas similaires au drama spécifié.
     """
+
     user_id: int | None = Field(
         default=None,
         ge=1,
@@ -171,6 +180,7 @@ class RecommendRequest(BaseModel):
 
 class RecommendResponse(BaseModel):
     """Modèle de réponse pour les recommandations."""
+
     success: bool = Field(..., description="Request status")
     mode: str = Field(..., description="Recommendation mode (user/item)")
     count: int = Field(..., description="Number of results")
@@ -184,12 +194,14 @@ class RecommendResponse(BaseModel):
 
 class PredictRequest(BaseModel):
     """Modèle de requête pour la prédiction de note."""
+
     user_id: int = Field(..., ge=1, le=1000000, description="User ID")
     drama_id: int = Field(..., ge=1, le=1000000, description="Drama ID")
 
 
 class PredictResponse(BaseModel):
     """Modèle de réponse pour la prédiction de note."""
+
     success: bool = Field(..., description="Request status")
     user_id: int = Field(..., description="User ID")
     drama_id: int = Field(..., description="Drama ID")
@@ -200,6 +212,7 @@ class PredictResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Modèle de réponse pour le health check."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     status: str = Field(..., description="Overall status")
@@ -212,6 +225,7 @@ class HealthResponse(BaseModel):
 # ============================================================
 # Gestionnaire de modèle (singleton)
 # ============================================================
+
 
 class ModelManager:
     """
@@ -262,9 +276,7 @@ class ModelManager:
             try:
                 self._train_demo_model()
             except Exception as train_err:
-                logger.error(
-                    "Échec de l'entraînement de fallback : %s", train_err
-                )
+                logger.error("Échec de l'entraînement de fallback : %s", train_err)
                 raise
 
         # Mise à jour du monitoring
@@ -323,6 +335,7 @@ model_manager = ModelManager()
 # Authentification JWT
 # ============================================================
 
+
 def create_access_token(
     data: dict[str, Any],
     expires_delta: timedelta | None = None,
@@ -359,9 +372,7 @@ def verify_token(token: str) -> dict[str, Any]:
         HTTPException: Si le token est invalide ou expiré.
     """
     try:
-        payload = jwt.decode(
-            token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM]
-        )
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(
@@ -438,7 +449,10 @@ def require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str,
 OPENAPI_TAGS = [
     {"name": "Monitoring", "description": "Service health, metrics, and alerts."},
     {"name": "Authentication", "description": "JWT token generation."},
-    {"name": "Recommendation", "description": "Recommendation and prediction endpoints."},
+    {
+        "name": "Recommendation",
+        "description": "Recommendation and prediction endpoints.",
+    },
     {"name": "Model", "description": "Model metadata and runtime information."},
 ]
 
@@ -505,6 +519,7 @@ app.add_middleware(
 # Middleware : logging et monitoring
 # ============================================================
 
+
 @app.middleware("http")
 async def monitoring_middleware(request: Request, call_next):
     """
@@ -565,6 +580,7 @@ async def monitoring_middleware(request: Request, call_next):
 # Endpoints
 # ============================================================
 
+
 @app.get("/health", response_model=HealthResponse, tags=["Monitoring"])
 @limiter.limit(API_RATE_LIMIT)
 async def health_check(request: Request) -> HealthResponse:
@@ -575,10 +591,7 @@ async def health_check(request: Request) -> HealthResponse:
         HealthResponse avec le statut de l'API et du modèle.
     """
     model_loaded = model_manager.model is not None
-    model_trained = (
-        model_manager.model is not None
-        and model_manager.model._is_trained
-    )
+    model_trained = model_manager.model is not None and model_manager.model._is_trained
 
     status_str = "healthy" if model_trained else "degraded"
 
@@ -935,6 +948,7 @@ async def get_alert_rules_endpoint(
 # ============================================================
 # Gestionnaire d'erreurs global
 # ============================================================
+
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
