@@ -24,6 +24,8 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -42,7 +44,6 @@ from model_api import app, create_access_token, model_manager  # noqa: E402
 from recommendation_model import (  # noqa: E402
     HybridRecommender,
     RecommendationResult,
-    load_real_data,
 )
 from model_monitoring import (  # noqa: E402
     ModelMonitor,
@@ -59,10 +60,50 @@ from model_monitoring import (  # noqa: E402
 @pytest.fixture(scope="session")
 def trained_model() -> HybridRecommender:
     """
-    Entraîne un modèle sur les données réelles de l'étape 1.
-    Utilisé pour tous les tests nécessitant un modèle fonctionnel.
+    Entraîne un modèle sur des données locales simulées.
+
+    Ce fixture évite toute dépendance réseau/base distante pendant les tests
+    CI afin de garder une suite déterministe et reproductible.
     """
-    dramas_df, interactions_df = load_real_data(num_users=50)
+    rng = np.random.RandomState(42)
+
+    num_dramas = 30
+    num_users = 50
+
+    dramas_df = pd.DataFrame(
+        {
+            "drama_id": list(range(1, num_dramas + 1)),
+            "title": [f"Drama {i}" for i in range(1, num_dramas + 1)],
+            "synopsis": [
+                f"Synopsis test pour le drama {i}." for i in range(1, num_dramas + 1)
+            ],
+            "genres": [
+                "Romance, Comedy" if i % 2 == 0 else "Thriller, Mystery"
+                for i in range(1, num_dramas + 1)
+            ],
+        }
+    )
+
+    interactions_data: list[dict[str, float | int]] = []
+    for user_id in range(1, num_users + 1):
+        n_interactions = int(rng.randint(6, 13))
+        chosen = rng.choice(
+            dramas_df["drama_id"].values,
+            size=n_interactions,
+            replace=False,
+        )
+        for drama_id in chosen:
+            rating = float(np.clip(rng.normal(loc=7.8, scale=1.2), 1.0, 10.0))
+            interactions_data.append(
+                {
+                    "user_id": int(user_id),
+                    "drama_id": int(drama_id),
+                    "rating": round(rating, 1),
+                }
+            )
+
+    interactions_df = pd.DataFrame(interactions_data)
+
     model = HybridRecommender(alpha=0.6)
     model.train(dramas_df, interactions_df)
     return model
@@ -257,8 +298,9 @@ class TestAuthEndpoint:
 
         response = client.post(
             "/auth/token",
-            json={"username": "user", "password": "user123"},
+            json={"username": "user", "password": os.environ["USER_PASSWORD"]},
         )
+        assert response.status_code == 200
         token = response.json()["access_token"]
         payload = pyjwt.decode(
             token,
