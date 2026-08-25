@@ -206,6 +206,56 @@ def test_load_dramas_from_etape1_fallback_on_db_error_when_enabled(
     assert fake_engine.disposed is True
 
 
+def test_load_dramas_from_snapshot_uses_embedded_when_missing_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    embedded_df = pd.DataFrame(
+        {
+            "drama_id": [1, 2],
+            "title": ["Embedded A", "Embedded B"],
+            "synopsis": ["", ""],
+            "genres": ["Drama", "Comedy"],
+            "note_moyenne": [8.0, 7.5],
+        }
+    )
+    missing_path = Path("C:/definitely/missing/snapshot.csv")
+
+    monkeypatch.setattr(data_loader, "_load_embedded_catalog", lambda: embedded_df)
+
+    got = data_loader._load_dramas_from_snapshot(missing_path)
+    assert got is embedded_df
+
+
+def test_load_dramas_from_snapshot_uses_embedded_when_cleaned_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    embedded_df = pd.DataFrame(
+        {
+            "drama_id": [1],
+            "title": ["Embedded"],
+            "synopsis": [""],
+            "genres": ["Drama"],
+            "note_moyenne": [8.2],
+        }
+    )
+    raw_empty_titles = pd.DataFrame(
+        {
+            "titre": [None, "   "],
+            "synopsis": [None, None],
+            "genres": [None, None],
+            "note_moyenne": [None, None],
+        }
+    )
+
+    monkeypatch.setattr(
+        data_loader.pd, "read_csv", lambda *_args, **_kwargs: raw_empty_titles
+    )
+    monkeypatch.setattr(data_loader, "_load_embedded_catalog", lambda: embedded_df)
+
+    got = data_loader._load_dramas_from_snapshot(Path(__file__))
+    assert got is embedded_df
+
+
 def test_generate_interactions_requires_note_moyenne_column() -> None:
     dramas_df = pd.DataFrame({"drama_id": [1, 2], "title": ["A", "B"]})
     with pytest.raises(ValueError, match="note_moyenne"):
