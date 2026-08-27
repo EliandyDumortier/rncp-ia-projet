@@ -45,7 +45,7 @@ describe('Utility functions', () => {
   });
 
   it('formatRating handles null', () => {
-    expect(formatRating(null)).toBe('Non noté');
+    expect(formatRating(null)).toBe('Not rated');
   });
 
   it('stars converts rating to stars', () => {
@@ -55,6 +55,6 @@ describe('Utility functions', () => {
   });
 
   it('stars handles null', () => {
-    expect(stars(null)).toBe('Non noté');
+    expect(stars(null)).toBe('Not rated');
   });
 });
