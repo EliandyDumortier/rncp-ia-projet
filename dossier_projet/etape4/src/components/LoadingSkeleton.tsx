@@ -3,7 +3,7 @@ export function LoadingSkeleton({ count = 8 }: { count?: number }) {
     <div
       role="status"
       aria-live="polite"
-      aria-label="Chargement des recommandations"
+      aria-label="Loading recommendations"
       className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4"
     >
       {Array.from({ length: count }).map((_, i) => (

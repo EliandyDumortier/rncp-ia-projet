@@ -23,7 +23,7 @@ export function FeatureCarousel({ slides, index, onNext, onPrev, onGoTo, onCtaCl
 
   return (
     <section
-      aria-label="Présentation de l'application"
+      aria-label="App presentation"
       className="relative min-h-[440px] flex items-center overflow-hidden"
     >
       <img
@@ -38,7 +38,7 @@ export function FeatureCarousel({ slides, index, onNext, onPrev, onGoTo, onCtaCl
       <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-16 w-full">
         <div className="max-w-2xl">
           <span className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm text-white text-sm font-medium px-4 py-1.5 rounded-full mb-5">
-            <Sparkles className="w-4 h-4" aria-hidden="true" /> Étape 4 — Application IA
+            <Sparkles className="w-4 h-4" aria-hidden="true" /> Step 4 — AI Application
           </span>
 
           <div key={slide.id} className="animate-fade-in">
@@ -59,7 +59,7 @@ export function FeatureCarousel({ slides, index, onNext, onPrev, onGoTo, onCtaCl
             <button
               onClick={onPrev}
               className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center text-white transition-all"
-              aria-label="Slide précédent"
+              aria-label="Previous slide"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
@@ -76,7 +76,7 @@ export function FeatureCarousel({ slides, index, onNext, onPrev, onGoTo, onCtaCl
             <button
               onClick={onNext}
               className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center text-white transition-all"
-              aria-label="Slide suivant"
+              aria-label="Next slide"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -87,7 +87,7 @@ export function FeatureCarousel({ slides, index, onNext, onPrev, onGoTo, onCtaCl
               className="bg-white text-rose-600 hover:bg-rose-50 font-semibold px-6 py-2.5 rounded-2xl transition-all flex items-center gap-2 shadow-soft"
               onClick={onCtaClick}
             >
-              <Play className="w-4 h-4" aria-hidden="true" /> Voir les recommandations
+              <Play className="w-4 h-4" aria-hidden="true" /> View recommendations
             </button>
           </div>
         </div>

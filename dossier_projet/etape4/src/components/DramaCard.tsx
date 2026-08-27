@@ -34,7 +34,7 @@ export function DramaCard({
       <div className="relative aspect-[2/3] overflow-hidden">
         <img
           src={drama.poster}
-          alt={`Affiche du K-Drama ${drama.title}`}
+          alt={`Poster of K-Drama ${drama.title}`}
           loading="lazy"
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
         />
@@ -42,7 +42,7 @@ export function DramaCard({
           <button
             onClick={() => onToggleFav(drama)}
             className="absolute top-2 right-2 w-9 h-9 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-soft transition-all hover:scale-110"
-            aria-label={isFav ? `Retirer ${drama.title} des favoris` : `Ajouter ${drama.title} aux favoris`}
+            aria-label={isFav ? `Remove ${drama.title} from favorites` : `Add ${drama.title} to favorites`}
           >
             <Heart
               className={`w-4 h-4 transition-colors ${isFav ? 'text-rose-500 fill-rose-500' : 'text-gray-400'}`}
@@ -62,7 +62,7 @@ export function DramaCard({
         </div>
         {predictedRating !== undefined && (
           <p className="text-xs text-rose-500 font-medium mb-1">
-            Note prédite: {predictedRating.toFixed(1)}/10
+            Predicted rating: {predictedRating.toFixed(1)}/10
           </p>
         )}
         {score !== undefined && (

@@ -9,10 +9,10 @@ interface NavbarProps {
 }
 
 const navItems: [Page, string][] = [
-  ['home', 'Accueil'],
-  ['search', 'Recherche'],
-  ['recommendations', 'Recommandations'],
-  ['favorites', 'Favoris'],
+  ['home', 'Home'],
+  ['search', 'Search'],
+  ['recommendations', 'Recommendations'],
+  ['favorites', 'Favorites'],
 ];
 
 export function Navbar({ page, nav }: NavbarProps) {
@@ -24,13 +24,13 @@ export function Navbar({ page, nav }: NavbarProps) {
         <button
           onClick={() => nav('home')}
           className="flex items-center gap-2 font-display font-bold text-xl text-rose-600"
-          aria-label="K-Drama AI — Accueil"
+          aria-label="K-Drama AI — Home"
         >
           <Film className="w-6 h-6" aria-hidden="true" />
           K-Drama AI
         </button>
 
-        <nav aria-label="Menu principal" className="hidden md:flex items-center gap-6">
+        <nav aria-label="Main menu" className="hidden md:flex items-center gap-6">
           {navItems.map(([key, label]) => (
             <button
               key={key}
@@ -55,7 +55,7 @@ export function Navbar({ page, nav }: NavbarProps) {
               <button
                 onClick={logout}
                 className="flex items-center gap-1 text-sm text-slate-500 hover:text-rose-500"
-                aria-label="Se déconnecter"
+                aria-label="Sign out"
               >
                 <LogOut className="w-4 h-4" aria-hidden="true" />
               </button>
@@ -65,7 +65,7 @@ export function Navbar({ page, nav }: NavbarProps) {
               onClick={() => nav('login')}
               className={`text-sm font-medium ${page === 'login' ? 'text-rose-600' : 'text-slate-600 hover:text-rose-500'}`}
             >
-              Connexion
+              Sign in
             </button>
           )}
         </nav>
@@ -107,12 +107,12 @@ function MobileMenu({ page, nav }: NavbarProps) {
                 {user.username}
               </button>
               <button onClick={() => { logout(); setOpen(false); }} className="text-sm py-2 text-left text-slate-500">
-                Déconnexion
+                Sign out
               </button>
             </>
           ) : (
             <button onClick={() => { nav('login'); setOpen(false); }} className="text-sm font-medium py-2 text-left text-slate-600">
-              Connexion
+              Sign in
             </button>
           )}
         </nav>

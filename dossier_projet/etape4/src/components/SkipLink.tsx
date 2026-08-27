@@ -1,7 +1,7 @@
 export function SkipLink() {
   return (
-    <a href="#contenu-principal" className="skip-link">
-      Aller au contenu principal
+    <a href="#main-content" className="skip-link">
+      Skip to main content
     </a>
   );
 }

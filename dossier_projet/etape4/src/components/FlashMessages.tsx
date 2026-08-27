@@ -36,7 +36,7 @@ export function FlashMessages() {
             <button
               onClick={() => dismissFlash(msg.id)}
               className="flex-shrink-0 opacity-60 hover:opacity-100"
-              aria-label="Fermer le message"
+              aria-label="Close message"
             >
               <X className="w-4 h-4" />
             </button>
