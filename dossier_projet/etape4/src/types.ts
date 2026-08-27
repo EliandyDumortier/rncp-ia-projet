@@ -34,6 +34,64 @@ export interface ModelInfo {
   metrics: Record<string, number>;
 }
 
+export interface PaginatedDramas {
+  items: ApiDrama[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface ApiDrama {
+  id: number;
+  tmdb_id: number | null;
+  titre: string;
+  titre_original: string | null;
+  date_diffusion: string | null;
+  nb_episodes: number | null;
+  nb_saisons: number | null;
+  synopsis: string | null;
+  note_moyenne: number | null;
+  nb_votes: number | null;
+  langue_originale: string | null;
+  pays_origine: string | null;
+  source: string;
+  date_creation: string;
+  date_modification: string;
+}
+
+export interface GenreResponse {
+  id: number;
+  nom: string;
+  description: string | null;
+}
+
+export interface RegisteredUser {
+  id: number;
+  pseudonyme: string;
+  date_inscription: string;
+  role: string;
+  consentement_collecte: boolean;
+  consentement_marketing: boolean;
+}
+
+export interface RatingResponse {
+  id: number;
+  utilisateur_id: number;
+  kdrama_id: number;
+  note: number;
+  commentaire: string | null;
+  date_note: string;
+}
+
+export interface PaginatedRatings {
+  items: RatingResponse[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export interface CarouselSlide {
   id: number;
   icon: string;
