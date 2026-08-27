@@ -74,7 +74,7 @@ export function SearchPage({ nav }: SearchPageProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Title, keyword..."
-            aria-label="Search for a K-Drama"
+            aria-label="Search a K-Drama"
             className="w-full pl-10 pr-4 py-3 border-2 border-slate-200 rounded-2xl focus:border-rose-400 outline-none text-sm"
           />
         </div>

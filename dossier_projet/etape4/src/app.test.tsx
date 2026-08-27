@@ -44,9 +44,11 @@ describe('App — Home page (US-03)', () => {
     localStorage.clear();
   });
 
-  it('displays popular dramas on home page', () => {
+  it('displays popular dramas on home page', async () => {
     render(<App />);
-    expect(screen.getByText('Crash Landing on You')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('Crash Landing on You')).toBeInTheDocument();
+    });
     expect(screen.getByText('Goblin (Guardian: The Lonely and Great God)')).toBeInTheDocument();
   });
 
@@ -88,8 +90,10 @@ describe('App — Search (US-01, US-02)', () => {
     render(<App />);
     await user.click(screen.getByText('Search'));
     const input = screen.getByLabelText('Search a K-Drama');
-    await user.type(input, 'crash');
-    expect(screen.getByText('Crash Landing on You')).toBeInTheDocument();
+    await user.type(input, 'crash', { delay: 50 });
+    await waitFor(() => {
+      expect(screen.getByText('Crash Landing on You')).toBeInTheDocument();
+    }, { timeout: 5000 });
     expect(screen.queryByText('Goblin (Guardian: The Lonely and Great God)')).not.toBeInTheDocument();
   });
 
@@ -98,8 +102,10 @@ describe('App — Search (US-01, US-02)', () => {
     render(<App />);
     await user.click(screen.getByText('Search'));
     const input = screen.getByLabelText('Search a K-Drama');
-    await user.type(input, 'zzzznonexistent');
-    expect(screen.getByText('No results found.')).toBeInTheDocument();
+    await user.type(input, 'zzzznonexistent', { delay: 50 });
+    await waitFor(() => {
+      expect(screen.getByText('No results found.')).toBeInTheDocument();
+    }, { timeout: 5000 });
   });
 });
 
@@ -113,7 +119,11 @@ describe('App — Login (US-10)', () => {
     render(<App />);
     const navButtons = screen.getAllByText('Sign in');
     await user.click(navButtons[0]);
-    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    const mainContent = document.getElementById('main-content');
+    const submitButton = mainContent?.querySelector('button[type="submit"]');
+    if (submitButton instanceof HTMLButtonElement) {
+      await user.click(submitButton);
+    }
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
     });

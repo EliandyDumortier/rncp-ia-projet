@@ -239,9 +239,21 @@ export async function fetchDramas(
       fallback: false,
     };
   } catch {
+    let filtered = [...dramas];
+    if (search) {
+      const q = search.toLowerCase();
+      filtered = filtered.filter((d) =>
+        d.title.toLowerCase().includes(q) ||
+        d.synopsis.toLowerCase().includes(q) ||
+        d.genres.some((g) => g.toLowerCase().includes(q))
+      );
+    }
+    filtered = filtered.sort((a, b) =>
+      sortOrder === 'desc' ? b.rating - a.rating : a.rating - b.rating
+    ).slice(0, pageSize);
     return {
-      items: [...dramas].sort((a, b) => b.rating - a.rating).slice(0, pageSize),
-      total: dramas.length,
+      items: filtered,
+      total: filtered.length,
       totalPages: 1,
       fallback: true,
     };
