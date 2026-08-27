@@ -119,7 +119,22 @@ export const apiClient = {
       throw new RecommendationAPIError(`AI API error (HTTP ${response.status}).`, response.status);
     }
 
-    return response.json();
+    const data = await response.json();
+    return {
+      recommendations: (data.recommendations || []).map((r: any) => ({
+        id: r.id || r.kdrama_id || 0,
+        title: r.title || r.titre || 'Unknown',
+        genres: r.genres || [],
+        rating: r.note_moyenne || r.rating || 0,
+        year: r.year || new Date().getFullYear(),
+        episodes: r.nb_episodes || r.episodes || 0,
+        synopsis: r.synopsis || '',
+        poster: r.poster || r.poster_url || 'https://via.placeholder.com/400x600?text=No+Poster',
+        predicted_rating: r.predicted_rating,
+        score: r.score,
+      })),
+      mode: data.mode || 'user',
+    };
   },
 
   async getModelInfo(): Promise<ModelInfo> {
