@@ -230,3 +230,21 @@ dossier_projet/etape3/src/model_artifacts/
 
 # Personal project-specific generated artifacts
 dossier_perso/
+
+# Étape 4 (React/Vite)
+dossier_projet/etape4/node_modules/
+dossier_projet/etape4/dist/
+dossier_projet/etape4/coverage/
+dossier_projet/etape4/.vite/
+dossier_projet/etape4/.cache/
+dossier_projet/etape4/.eslintcache
+
+# Local env / secrets
+dossier_projet/etape4/.env
+dossier_projet/etape4/.env.local
+dossier_projet/etape4/.env.development.local
+dossier_projet/etape4/.env.test.local
+dossier_projet/etape4/.env.production.local
+
+# Logs
+dossier_projet/etape4/logs/
