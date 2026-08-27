@@ -38,7 +38,7 @@ export function FeatureCarousel({ slides, index, onNext, onPrev, onGoTo, onCtaCl
       <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-16 w-full">
         <div className="max-w-2xl">
           <span className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm text-white text-sm font-medium px-4 py-1.5 rounded-full mb-5">
-            <Sparkles className="w-4 h-4" aria-hidden="true" /> Step 4 — AI Application
+            <Sparkles className="w-4 h-4" aria-hidden="true" /> K-Drama AI Features
           </span>
 
           <div key={slide.id} className="animate-fade-in">
