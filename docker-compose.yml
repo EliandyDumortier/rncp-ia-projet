@@ -1,0 +1,136 @@
+# ============================================================
+# docker-compose.yml — Orchestration des 3 services du système
+# de recommandation de K-Dramas par IA
+#
+# Démarrage :  docker compose up --build
+# Arrêt      :  docker compose down
+#
+# Services :
+#   1. data-api   (etape1) — API REST données + auth (port 8000)
+#   2. model-api   (etape3) — API REST modèle IA (port 8001)
+#   3. web-app     (etape4) — Application web React (port 8080)
+#   4. db           — PostgreSQL 15 (base de données partagée)
+#
+# Fichier : docker-compose.yml (racine du projet)
+# Auteur  : Équipe projet RNCP AI
+# ============================================================
+
+services:
+  # ----------------------------------------------------------
+  # Base de données PostgreSQL partagée
+  # ----------------------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: kdrama-db
+    environment:
+      POSTGRES_DB: kdrama
+      POSTGRES_USER: kdrama
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-kdrama_dev_2026}
+    ports:
+      - "5433:5432"
+    volumes:
+      - kdrama-db-data:/var/lib/postgresql/data
+      - ./dossier_projet/etape1/src/database_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kdrama -d kdrama"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kdrama-net
+
+  # ----------------------------------------------------------
+  # 1. API de données (etape1) — FastAPI
+  #    Endpoints : K-Dramas, genres, notes, auth, RGPD
+  # ----------------------------------------------------------
+  data-api:
+    build:
+      context: ./dossier_projet/etape1
+      dockerfile: docker/Dockerfile.api
+    container_name: kdrama-data-api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://kdrama:${DB_PASSWORD:-kdrama_dev_2026}@db:5432/kdrama
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      CORS_ORIGINS: "http://localhost:8080,http://localhost:5173"
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    networks:
+      - kdrama-net
+
+  # ----------------------------------------------------------
+  # 2. API du modèle IA (etape3) — FastAPI + scikit-learn
+  #    Endpoints : /recommend, /predict, /health, /metrics
+  # ----------------------------------------------------------
+  model-api:
+    build:
+      context: ./dossier_projet/etape3
+      dockerfile: docker/Dockerfile.model
+    container_name: kdrama-model-api
+    ports:
+      - "8001:8001"
+    environment:
+      JWT_SECRET_KEY: ${JWT_SECRET:-change-me-in-production}
+      API_HOST: "0.0.0.0"
+      API_PORT: "8001"
+      USER_PASSWORD: "user123"
+      ADMIN_PASSWORD: "admin123"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    networks:
+      - kdrama-net
+
+  # ----------------------------------------------------------
+  # 3. Application web React (etape4) — nginx
+  #    Sert l'interface utilisateur et appelle les 2 APIs
+  # ----------------------------------------------------------
+  web-app:
+    build:
+      context: ./dossier_projet/etape4
+      dockerfile: docker/Dockerfile.app
+      args:
+        VITE_API_DATA_URL: "http://localhost:8000"
+        VITE_API_IA_URL: "http://localhost:8001"
+    container_name: kdrama-web-app
+    ports:
+      - "8080:80"
+    depends_on:
+      data-api:
+        condition: service_healthy
+      model-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - kdrama-net
+
+# ----------------------------------------------------------
+# Réseau partagé entre les conteneurs
+# ----------------------------------------------------------
+networks:
+  kdrama-net:
+    driver: bridge
+
+# ----------------------------------------------------------
+# Volume persistant pour la base de données
+# ----------------------------------------------------------
+volumes:
+  kdrama-db-data:
+    driver: local
