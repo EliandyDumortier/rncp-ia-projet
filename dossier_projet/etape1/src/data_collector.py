@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-data_collector.py — Collecte automatisée de données K-Drama depuis trois sources.
+data_collector.py — Collecte automatisée de données K-Drama depuis quatre sources.
 
 Ce module implémente la collecte de données depuis :
     1. L'API REST TMDB (The Movie Database) — données structurées JSON.
@@ -323,6 +323,12 @@ class TMDBCollector:
 
         original_title = source_data.get("original_name") or english_name
 
+        # Extract poster URL from TMDB poster_path
+        poster_url = None
+        poster_path = source_data.get("poster_path")
+        if poster_path:
+            poster_url = f"https://image.tmdb.org/t/p/w400{poster_path}"
+
         return {
             "tmdb_id": source_data.get("id"),
             "titre": english_name,
@@ -340,6 +346,7 @@ class TMDBCollector:
             "reseaux_diffusion": [
                 n.get("name") for n in source_data.get("networks", [])
             ],
+            "poster": poster_url,
             "source": "tmdb",
         }
 

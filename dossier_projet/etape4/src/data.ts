@@ -233,28 +233,8 @@ export async function fetchDramas(
       sortOrder,
     );
 
-    // If API returns empty results, use fallback instead
-    if (!result.items || result.items.length === 0) {
-      let filtered = [...dramas];
-      if (search) {
-        const q = search.toLowerCase();
-        filtered = filtered.filter((d) =>
-          d.title.toLowerCase().includes(q) ||
-          d.synopsis.toLowerCase().includes(q) ||
-          d.genres.some((g) => g.toLowerCase().includes(q))
-        );
-      }
-      filtered = filtered.sort((a, b) =>
-        sortOrder === 'desc' ? b.rating - a.rating : a.rating - b.rating
-      ).slice(0, pageSize);
-      return {
-        items: filtered,
-        total: filtered.length,
-        totalPages: 1,
-        fallback: true,
-      };
-    }
-
+    // Always return API results if successful, even if empty
+    // (Empty means no matches found in the real catalog, not API failure)
     return {
       items: result.items.map(apiDramaToDrama),
       total: result.total,
@@ -262,6 +242,7 @@ export async function fetchDramas(
       fallback: false,
     };
   } catch {
+    // Only use fallback if API truly fails (connection error, timeout, etc)
     let filtered = [...dramas];
     if (search) {
       const q = search.toLowerCase();

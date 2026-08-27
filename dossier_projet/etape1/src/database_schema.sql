@@ -62,6 +62,7 @@ CREATE TABLE kdrama.kdramas (
     pays_origine                VARCHAR(10) DEFAULT 'KR',
     source                      VARCHAR(50) NOT NULL DEFAULT 'tmdb',
     url_source                  VARCHAR(500),
+    poster                      VARCHAR(500),
     date_creation               TIMESTAMP NOT NULL DEFAULT NOW(),
     date_modification           TIMESTAMP NOT NULL DEFAULT NOW()
 );
