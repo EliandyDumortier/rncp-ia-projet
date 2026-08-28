@@ -283,7 +283,7 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
                         reseaux_diffusion,
                         acteurs,
                         tags
-                    FROM kdramas
+                    FROM kdrama.kdramas
                     WHERE titre IS NOT NULL
                     ORDER BY titre
                     """
