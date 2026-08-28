@@ -209,7 +209,7 @@ export function apiDramaToDrama(api: ApiDrama): Drama {
     year: api.date_diffusion ? new Date(api.date_diffusion).getFullYear() : 0,
     episodes: api.nb_episodes ?? 0,
     synopsis: api.synopsis ?? "",
-    poster: PLACEHOLDER_POSTER,
+    poster: (api as any).poster && ((api as any).poster as string).trim() ? (api as any).poster : PLACEHOLDER_POSTER,
   };
 }
 
