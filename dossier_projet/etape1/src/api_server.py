@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, date, timedelta, timezone
 from typing import Any, Optional
 
 from dotenv import load_dotenv
@@ -47,6 +47,7 @@ from sqlalchemy import (
     String,
     Float,
     DateTime,
+    Date,
     Boolean,
     Text,
     ForeignKey,
@@ -103,7 +104,8 @@ class Kdrama(Base):
     titre: Mapped[str] = Column(String(300), nullable=False)
     titre_original: Mapped[Optional[str]] = Column(String(300))
     english_name: Mapped[Optional[str]] = Column(String(300))
-    date_diffusion: Mapped[Optional[datetime]] = Column(DateTime)
+    date_diffusion: Mapped[Optional[date]] = Column(Date)
+    annee_diffusion: Mapped[Optional[int]] = Column(Integer)
     nb_episodes: Mapped[Optional[int]] = Column(Integer)
     nb_saisons: Mapped[Optional[int]] = Column(Integer)
     duree_episode: Mapped[Optional[int]] = Column(Integer)
@@ -713,6 +715,12 @@ def export_my_data(
 # ---------------------------------------------------------------------------
 # Endpoints CRUD — K-Dramas
 # ---------------------------------------------------------------------------
+@app.get("/api/v1/test")
+def test_endpoint():
+    """Simple test endpoint."""
+    return {"status": "ok", "message": "API is working"}
+
+
 @app.get(
     "/api/v1/kdramas",
     response_model=PaginatedResponse,
@@ -727,48 +735,42 @@ def list_kdramas(
     sort_order: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
     db: Session = Depends(get_db),
 ):
-    """Retourne la liste paginée des K-Dramas.
+    """Retourne la liste paginée des K-Dramas."""
+    try:
+        query = db.query(Kdrama)
 
-    Args:
-        page: Numéro de page (commence à 1).
-        page_size: Taille de page (1 à 100).
-        search: Filtre de recherche sur le titre (ILIKE).
-        sort_by: Champ de tri (note_moyenne, date_diffusion, titre, nb_votes).
-        sort_order: Ordre de tri (asc ou desc).
-        db: Session de base de données.
+        # Filtre de recherche
+        if search:
+            query = query.filter(
+                (Kdrama.titre.ilike(f"%{search}%"))
+                | (Kdrama.titre_original.ilike(f"%{search}%"))
+            )
 
-    Returns:
-        Réponse paginée contenant les K-Dramas.
-    """
-    query = db.query(Kdrama)
+        # Tri
+        sort_column = getattr(Kdrama, sort_by, Kdrama.note_moyenne)
+        if sort_order == "desc":
+            sort_column = sort_column.desc()
+        query = query.order_by(sort_column)
 
-    # Filtre de recherche
-    if search:
-        query = query.filter(
-            (Kdrama.titre.ilike(f"%{search}%"))
-            | (Kdrama.titre_original.ilike(f"%{search}%"))
-        )
+        # Total avant pagination
+        total = query.count()
 
-    # Tri
-    sort_column = getattr(Kdrama, sort_by, Kdrama.note_moyenne)
-    if sort_order == "desc":
-        sort_column = sort_column.desc()
-    query = query.order_by(sort_column)
+        # Pagination
+        offset = (page - 1) * page_size
+        kdramas = query.offset(offset).limit(page_size).all()
 
-    # Total avant pagination
-    total = query.count()
-
-    # Pagination
-    offset = (page - 1) * page_size
-    kdramas = query.offset(offset).limit(page_size).all()
-
-    return {
-        "items": kdramas,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size,
-    }
+        return {
+            "items": kdramas,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size,
+        }
+    except Exception as e:
+        import traceback
+        logger.error(f"Error in list_kdramas: {type(e).__name__}: {e}")
+        logger.error(traceback.format_exc())
+        raise
 
 
 @app.get(
