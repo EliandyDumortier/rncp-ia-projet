@@ -224,7 +224,16 @@ export function HistoryPage({ nav }: HistoryPageProps) {
 
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handleAddDrama({ ...w, id: w.drama_id, genres: [] })}
+                      onClick={() => handleAddDrama({
+                        id: w.drama_id,
+                        title: w.drama_title,
+                        poster: w.drama_poster,
+                        genres: [],
+                        rating: w.rating,
+                        year: 0,
+                        episodes: 0,
+                        synopsis: ''
+                      })}
                       className="flex-1 px-2 py-1 text-xs bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
                     >
                       {w.rating > 0 ? 'Edit' : 'Add Rating'}
