@@ -1,5 +1,6 @@
 import type { Drama, CarouselSlide, ApiDrama, GenreResponse } from "./types";
 import { dataApi } from "./api";
+import { fetchDramasFromSupabase } from "./supabaseClient";
 
 export const dramas: Drama[] = [
   {
@@ -224,6 +225,20 @@ export async function fetchDramas(
   totalPages: number;
   fallback: boolean;
 }> {
+  // Try Supabase first (real data source)
+  try {
+    const result = await fetchDramasFromSupabase(page, pageSize, search, sortBy, sortOrder);
+    return {
+      items: result.items,
+      total: result.total,
+      totalPages: result.totalPages,
+      fallback: false,
+    };
+  } catch (supabaseError) {
+    console.warn('Supabase fetch failed, trying API:', supabaseError);
+  }
+
+  // Fall back to API
   try {
     const result = await dataApi.listDramas(
       page,
@@ -234,34 +249,36 @@ export async function fetchDramas(
     );
 
     // Always return API results if successful, even if empty
-    // (Empty means no matches found in the real catalog, not API failure)
     return {
       items: result.items.map(apiDramaToDrama),
       total: result.total,
       totalPages: result.total_pages,
       fallback: false,
     };
-  } catch {
-    // Only use fallback if API truly fails (connection error, timeout, etc)
-    let filtered = [...dramas];
-    if (search) {
-      const q = search.toLowerCase();
-      filtered = filtered.filter((d) =>
-        d.title.toLowerCase().includes(q) ||
-        d.synopsis.toLowerCase().includes(q) ||
-        d.genres.some((g) => g.toLowerCase().includes(q))
-      );
-    }
-    filtered = filtered.sort((a, b) =>
-      sortOrder === 'desc' ? b.rating - a.rating : a.rating - b.rating
-    ).slice(0, pageSize);
-    return {
-      items: filtered,
-      total: filtered.length,
-      totalPages: 1,
-      fallback: true,
-    };
+  } catch (apiError) {
+    console.warn('API fetch failed, using fallback data:', apiError);
   }
+
+  // Final fallback to local hardcoded data
+  let filtered = [...dramas];
+  if (search) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter((d) =>
+      d.title.toLowerCase().includes(q) ||
+      d.synopsis.toLowerCase().includes(q) ||
+      d.genres.some((g) => g.toLowerCase().includes(q))
+    );
+  }
+  filtered = filtered.sort((a, b) =>
+    sortOrder === 'desc' ? b.rating - a.rating : a.rating - b.rating
+  ).slice(0, pageSize);
+
+  return {
+    items: filtered,
+    total: filtered.length,
+    totalPages: 1,
+    fallback: true,
+  };
 }
 
 export async function fetchGenres(): Promise<string[]> {
