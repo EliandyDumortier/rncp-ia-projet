@@ -206,9 +206,9 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
         <div className="mb-6 border-b border-slate-200">
           <div className="flex gap-4">
             <button
-              onClick={() => setTab('chat')}
+              onClick={() => setShowingResults(true)}
               className={`py-3 px-4 font-medium transition-colors ${
-                tab === 'chat'
+                showingResults
                   ? 'text-rose-500 border-b-2 border-rose-500'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
@@ -217,12 +217,8 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
             </button>
             {watchedDramas.length > 0 && (
               <button
-                onClick={() => setTab('history')}
-                className={`py-3 px-4 font-medium transition-colors ${
-                  tab === 'history'
-                    ? 'text-rose-500 border-b-2 border-rose-500'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
+                onClick={() => fetchHistoryRecommendations()}
+                className={`py-3 px-4 font-medium transition-colors text-gray-500 hover:text-gray-700`}
               >
                 Based on Your Watch History
               </button>
@@ -250,48 +246,32 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
 
       {loading ? (
         <LoadingSkeleton count={12} />
-      ) : tab === 'chat' ? (
-        recommendations.length > 0 ? (
-          <div role="list" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {recommendations.map((d, i) => (
-              <DramaCard
-                key={d.id}
-                drama={d}
-                isFav={isFavorite(d.id)}
-                onToggleFav={toggleFav}
-                onViewDetails={setSelectedDrama}
-                rank={i + 1}
-                predictedRating={d.predicted_rating}
-                score={d.score}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-12 text-gray-400">
-            <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-40" aria-hidden="true" />
-            <p>Get started by describing what you want to watch or selecting a mood above</p>
-          </div>
-        )
+      ) : showingResults && recommendations.length > 0 ? (
+        <div role="list" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          {recommendations.map((d, i) => (
+            <DramaCard
+              key={d.id}
+              drama={d}
+              isFav={isFavorite(d.id)}
+              onToggleFav={toggleFav}
+              onViewDetails={setSelectedDrama}
+              rank={i + 1}
+              predictedRating={d.predicted_rating}
+              score={d.score}
+              isWatched={isWatched(d.id)}
+            />
+          ))}
+        </div>
+      ) : showingResults ? (
+        <div className="text-center py-12 text-gray-400">
+          <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-40" aria-hidden="true" />
+          <p>No recommendations found. Try adjusting your preferences.</p>
+        </div>
       ) : (
-        historyRecommendations.length > 0 ? (
-          <div role="list" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {historyRecommendations.map((d, i) => (
-              <DramaCard
-                key={d.id}
-                drama={d}
-                isFav={isFavorite(d.id)}
-                onToggleFav={toggleFav}
-                onViewDetails={setSelectedDrama}
-                rank={i + 1}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-12 text-gray-400">
-            <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-40" aria-hidden="true" />
-            <p>Add dramas to your watch history to get personalized recommendations</p>
-          </div>
-        )
+        <div className="text-center py-12 text-gray-400">
+          <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-40" aria-hidden="true" />
+          <p>Enter your preferences to get AI recommendations</p>
+        </div>
       )}
 
       <DramaDetailModal
