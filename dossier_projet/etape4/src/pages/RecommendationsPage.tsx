@@ -38,6 +38,7 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
   const [showingResults, setShowingResults] = useState(false);
+  const [viewMode, setViewMode] = useState<'preferences' | 'history'>('preferences');
 
   const fetchRecommendations = useCallback(async () => {
     if (!user) {
@@ -77,12 +78,15 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
 
     setError(null);
     setShowingResults(true);
+    setViewMode('preferences');
     await fetchRecommendations();
   };
 
   const fetchHistoryRecommendations = useCallback(async () => {
     if (!user || watchedDramas.length === 0) return;
     setLoading(true);
+    setViewMode('history');
+    setShowingResults(true);
     try {
       const result = await apiClient.getRecommendations(user.user_id, null, 12);
       setHistoryRecommendations(result.recommendations || []);
@@ -206,9 +210,9 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
         <div className="mb-6 border-b border-slate-200">
           <div className="flex gap-4">
             <button
-              onClick={() => setShowingResults(true)}
+              onClick={() => setViewMode('preferences')}
               className={`py-3 px-4 font-medium transition-colors ${
-                showingResults
+                viewMode === 'preferences'
                   ? 'text-rose-500 border-b-2 border-rose-500'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
@@ -218,7 +222,11 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
             {watchedDramas.length > 0 && (
               <button
                 onClick={() => fetchHistoryRecommendations()}
-                className={`py-3 px-4 font-medium transition-colors text-gray-500 hover:text-gray-700`}
+                className={`py-3 px-4 font-medium transition-colors ${
+                  viewMode === 'history'
+                    ? 'text-rose-500 border-b-2 border-rose-500'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
               >
                 Based on Your Watch History
               </button>
@@ -246,9 +254,9 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
 
       {loading ? (
         <LoadingSkeleton count={12} />
-      ) : showingResults && recommendations.length > 0 ? (
+      ) : showingResults && ((viewMode === 'preferences' && recommendations.length > 0) || (viewMode === 'history' && historyRecommendations.length > 0)) ? (
         <div role="list" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {recommendations.map((d, i) => (
+          {(viewMode === 'preferences' ? recommendations : historyRecommendations).map((d, i) => (
             <DramaCard
               key={d.id}
               drama={d}
@@ -279,6 +287,8 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
         isFav={selectedDrama ? isFavorite(selectedDrama.id) : false}
         onClose={() => setSelectedDrama(null)}
         onToggleFav={toggleFav}
+        isWatched={selectedDrama ? isWatched(selectedDrama.id) : false}
+        onAddToWatched={handleAddToWatched}
       />
     </div>
   );

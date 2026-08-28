@@ -85,12 +85,6 @@ export function FavoritesPage({ nav }: FavoritesPageProps) {
                   synopsis: ''
                 })}
               >
-                  rating: 0,
-                  year: 0,
-                  episodes: 0,
-                  synopsis: ''
-                })}
-              >
                 <div className="relative aspect-[2/3] overflow-hidden">
                   <img
                     src={fav.drama_poster}
