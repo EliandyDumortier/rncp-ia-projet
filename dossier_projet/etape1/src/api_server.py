@@ -506,6 +506,16 @@ def root():
     return RedirectResponse(url="/docs")
 
 
+@app.get("/test-db", summary="Test database connection")
+def test_db(db: Session = Depends(get_db)):
+    """Simple test to verify database works."""
+    try:
+        count = db.query(Kdrama).count()
+        return {"status": "ok", "kdrama_count": count}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "type": type(e).__name__}
+
+
 # ---------------------------------------------------------------------------
 # Endpoints d'authentification
 # ---------------------------------------------------------------------------
