@@ -2,10 +2,12 @@ import { TrendingUp, ArrowRight, Sparkles, Star } from 'lucide-react';
 import type { Drama, Page } from '../types';
 import { dramas, carouselSlides, fetchDramas } from '../data';
 import { DramaCard } from '../components/DramaCard';
+import { DramaDetailModal } from '../components/DramaDetailModal';
 import { FeatureCarousel } from '../components/FeatureCarousel';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAuth } from '../auth';
 import { useFavorites } from '../useFavorites';
+import { useWatchedDramas } from '../useWatchedDramas';
 import { useState, useEffect, useCallback } from 'react';
 
 interface HomePageProps {
@@ -15,10 +17,12 @@ interface HomePageProps {
 export function HomePage({ nav }: HomePageProps) {
   const { user, flash } = useAuth();
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites(user?.user_id ?? null);
+  const { isWatched, addWatchedDrama } = useWatchedDramas(user?.user_id ?? null);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [popular, setPopular] = useState<Drama[]>([]);
   const [loading, setLoading] = useState(true);
   const [fallback, setFallback] = useState(false);
+  const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +60,16 @@ export function HomePage({ nav }: HomePageProps) {
       addFavorite(drama);
       flash(`Added "${drama.title}" to your favorites.`, 'success');
     }
+  };
+
+  const handleAddToWatched = (drama: Drama) => {
+    if (!user) {
+      flash('Please sign in to track watched dramas.', 'info');
+      nav('login');
+      return;
+    }
+    addWatchedDrama(drama, 0, '');
+    flash(`Added "${drama.title}" to your watch list! Rate it in "My List".`, 'success');
   };
 
   return (
@@ -111,6 +125,8 @@ export function HomePage({ nav }: HomePageProps) {
                   drama={d}
                   isFav={isFavorite(d.id)}
                   onToggleFav={toggleFav}
+                  onViewDetails={setSelectedDrama}
+                  isWatched={isWatched(d.id)}
                 />
               ))}
             </div>
@@ -136,6 +152,15 @@ export function HomePage({ nav }: HomePageProps) {
           </button>
         </section>
       </div>
+
+      <DramaDetailModal
+        drama={selectedDrama}
+        isFav={selectedDrama ? isFavorite(selectedDrama.id) : false}
+        onClose={() => setSelectedDrama(null)}
+        onToggleFav={toggleFav}
+        isWatched={selectedDrama ? isWatched(selectedDrama.id) : false}
+        onAddToWatched={handleAddToWatched}
+      />
     </div>
   );
 }
