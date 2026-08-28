@@ -745,6 +745,31 @@ def list_kdramas_simple(
         raise
 
 
+@app.get("/api/v1/kdramas/debug/count", summary="Debug: Count kdramas")
+def debug_kdrama_count(db: Session = Depends(get_db)):
+    """Debug endpoint to test basic database connection."""
+    try:
+        count = db.query(Kdrama).count()
+        first = db.query(Kdrama).first()
+        return {
+            "status": "ok",
+            "total_count": count,
+            "first_drama": {
+                "id": first.id if first else None,
+                "titre": first.titre if first else None,
+                "poster": first.poster if first else None,
+            } if first else None
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        }
+
+
 @app.get(
     "/api/v1/kdramas",
     summary="Liste paginée des K-Dramas",
