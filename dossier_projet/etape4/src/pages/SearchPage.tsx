@@ -7,6 +7,7 @@ import { DramaDetailModal } from '../components/DramaDetailModal';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAuth } from '../auth';
 import { useFavorites } from '../useFavorites';
+import { useWatchedDramas } from '../useWatchedDramas';
 
 interface SearchPageProps {
   nav: (p: Page) => void;
@@ -15,6 +16,7 @@ interface SearchPageProps {
 export function SearchPage({ nav }: SearchPageProps) {
   const { user, flash } = useAuth();
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites(user?.user_id ?? null);
+  const { isWatched, addWatchedDrama } = useWatchedDramas(user?.user_id ?? null);
   const [query, setQuery] = useState('');
   const [genreFilter, setGenreFilter] = useState('All genres');
   const [genres, setGenres] = useState<string[]>(allGenres);
@@ -62,6 +64,17 @@ export function SearchPage({ nav }: SearchPageProps) {
       addFavorite(drama);
       flash(`Added "${drama.title}" to your favorites.`, 'success');
     }
+  };
+
+  const handleAddToWatched = (drama: Drama) => {
+    if (!user) {
+      flash('Please sign in to track watched dramas.', 'info');
+      nav('login');
+      return;
+    }
+    setSelectedDrama(null);
+    nav('history');
+    flash(`Go to "My List" to rate "${drama.title}"`, 'info');
   };
 
   return (
@@ -117,6 +130,7 @@ export function SearchPage({ nav }: SearchPageProps) {
               isFav={isFavorite(d.id)}
               onToggleFav={toggleFav}
               onViewDetails={setSelectedDrama}
+              isWatched={isWatched(d.id)}
             />
           ))}
         </div>
@@ -127,6 +141,8 @@ export function SearchPage({ nav }: SearchPageProps) {
         isFav={selectedDrama ? isFavorite(selectedDrama.id) : false}
         onClose={() => setSelectedDrama(null)}
         onToggleFav={toggleFav}
+        isWatched={selectedDrama ? isWatched(selectedDrama.id) : false}
+        onAddToWatched={handleAddToWatched}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { Star, Heart } from 'lucide-react';
+import { Star, Heart, Eye } from 'lucide-react';
 import type { Drama } from '../types';
 import { formatRating } from '../data';
 
@@ -11,6 +11,7 @@ interface DramaCardProps {
   rank?: number;
   predictedRating?: number;
   score?: number;
+  isWatched?: boolean;
 }
 
 export function DramaCard({
@@ -22,6 +23,7 @@ export function DramaCard({
   rank,
   predictedRating,
   score,
+  isWatched = false,
 }: DramaCardProps) {
   const handleCardClick = () => {
     if (onViewDetails) {
@@ -38,6 +40,12 @@ export function DramaCard({
       {rank !== undefined && (
         <span className="absolute -top-2 -left-2 z-10 w-7 h-7 rounded-full bg-rose-500 text-white text-xs font-bold flex items-center justify-center shadow-soft">
           {rank}
+        </span>
+      )}
+      {isWatched && (
+        <span className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full bg-violet-500/90 text-white text-xs font-medium backdrop-blur-sm shadow-soft">
+          <Eye className="w-3 h-3" aria-hidden="true" />
+          Watched
         </span>
       )}
       <div className="relative aspect-[2/3] overflow-hidden">

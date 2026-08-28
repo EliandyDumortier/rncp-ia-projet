@@ -1,4 +1,4 @@
-import { X, Heart, Star } from 'lucide-react';
+import { X, Heart, Star, Eye } from 'lucide-react';
 import type { Drama } from '../types';
 import { formatRating } from '../data';
 
@@ -7,6 +7,8 @@ interface DramaDetailModalProps {
   isFav: boolean;
   onClose: () => void;
   onToggleFav: (drama: Drama) => void;
+  isWatched?: boolean;
+  onAddToWatched?: (drama: Drama) => void;
 }
 
 export function DramaDetailModal({
@@ -14,6 +16,8 @@ export function DramaDetailModal({
   isFav,
   onClose,
   onToggleFav,
+  isWatched = false,
+  onAddToWatched,
 }: DramaDetailModalProps) {
   if (!drama) return null;
 
@@ -99,6 +103,20 @@ export function DramaDetailModal({
                 />
                 {isFav ? 'Remove from Favorites' : 'Add to Favorites'}
               </button>
+
+              {onAddToWatched && (
+                <button
+                  onClick={() => onAddToWatched(drama)}
+                  className={`w-full py-2 px-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 ${
+                    isWatched
+                      ? 'bg-violet-500 text-white hover:bg-violet-600'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <Eye className="w-4 h-4" />
+                  {isWatched ? 'Already Watched' : 'Add to Watched List'}
+                </button>
+              )}
             </div>
           </div>
 
