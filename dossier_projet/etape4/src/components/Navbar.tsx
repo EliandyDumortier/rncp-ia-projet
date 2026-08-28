@@ -13,6 +13,7 @@ const navItems: [Page, string][] = [
   ['search', 'Search'],
   ['recommendations', 'Recommendations'],
   ['favorites', 'Favorites'],
+  ['history', 'My List'],
 ];
 
 export function Navbar({ page, nav }: NavbarProps) {

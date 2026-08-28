@@ -8,6 +8,7 @@ import { HomePage } from './pages/HomePage';
 import { SearchPage } from './pages/SearchPage';
 import { RecommendationsPage } from './pages/RecommendationsPage';
 import { FavoritesPage } from './pages/FavoritesPage';
+import { HistoryPage } from './pages/HistoryPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { LoginPage } from './pages/LoginPage';
 
@@ -34,6 +35,7 @@ function AppContent() {
         {page === 'search' && <SearchPage nav={nav} />}
         {page === 'recommendations' && <RecommendationsPage nav={nav} />}
         {page === 'favorites' && <FavoritesPage nav={nav} />}
+        {page === 'history' && <HistoryPage nav={nav} />}
         {page === 'profile' && <ProfilePage nav={nav} />}
         {page === 'login' && <LoginPage nav={nav} />}
       </main>
@@ -59,6 +61,7 @@ function pageTitle(page: Page): string {
     search: 'K-Drama AI — Search',
     recommendations: 'K-Drama AI — Recommendations',
     favorites: 'K-Drama AI — My Favorites',
+    history: 'K-Drama AI — My Watched Dramas',
     profile: 'K-Drama AI — My Profile',
     login: 'K-Drama AI — Sign In',
   };

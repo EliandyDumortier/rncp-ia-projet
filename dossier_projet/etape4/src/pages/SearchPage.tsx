@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { Drama, Page } from '../types';
 import { fetchDramas, fetchGenres, dramas, allGenres } from '../data';
 import { DramaCard } from '../components/DramaCard';
+import { DramaDetailModal } from '../components/DramaDetailModal';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAuth } from '../auth';
 import { useFavorites } from '../useFavorites';
@@ -21,6 +22,7 @@ export function SearchPage({ nav }: SearchPageProps) {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [fallback, setFallback] = useState(false);
+  const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -114,10 +116,18 @@ export function SearchPage({ nav }: SearchPageProps) {
               drama={d}
               isFav={isFavorite(d.id)}
               onToggleFav={toggleFav}
+              onViewDetails={setSelectedDrama}
             />
           ))}
         </div>
       )}
+
+      <DramaDetailModal
+        drama={selectedDrama}
+        isFav={selectedDrama ? isFavorite(selectedDrama.id) : false}
+        onClose={() => setSelectedDrama(null)}
+        onToggleFav={toggleFav}
+      />
     </div>
   );
 }

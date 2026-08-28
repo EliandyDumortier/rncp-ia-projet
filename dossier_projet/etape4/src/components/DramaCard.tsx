@@ -6,6 +6,7 @@ interface DramaCardProps {
   drama: Drama;
   isFav: boolean;
   onToggleFav: (drama: Drama) => void;
+  onViewDetails?: (drama: Drama) => void;
   showAddButton?: boolean;
   rank?: number;
   predictedRating?: number;
@@ -16,15 +17,23 @@ export function DramaCard({
   drama,
   isFav,
   onToggleFav,
+  onViewDetails,
   showAddButton = true,
   rank,
   predictedRating,
   score,
 }: DramaCardProps) {
+  const handleCardClick = () => {
+    if (onViewDetails) {
+      onViewDetails(drama);
+    }
+  };
+
   return (
     <div
       role="listitem"
-      className="group relative bg-white rounded-3xl overflow-hidden shadow-soft border border-slate-100 hover:shadow-card transition-all hover:-translate-y-1"
+      className="group relative bg-white rounded-3xl overflow-hidden shadow-soft border border-slate-100 hover:shadow-card transition-all hover:-translate-y-1 cursor-pointer"
+      onClick={handleCardClick}
     >
       {rank !== undefined && (
         <span className="absolute -top-2 -left-2 z-10 w-7 h-7 rounded-full bg-rose-500 text-white text-xs font-bold flex items-center justify-center shadow-soft">
@@ -40,7 +49,10 @@ export function DramaCard({
         />
         {showAddButton && (
           <button
-            onClick={() => onToggleFav(drama)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFav(drama);
+            }}
             className="absolute top-2 right-2 w-9 h-9 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-soft transition-all hover:scale-110"
             aria-label={isFav ? `Remove ${drama.title} from favorites` : `Add ${drama.title} to favorites`}
           >

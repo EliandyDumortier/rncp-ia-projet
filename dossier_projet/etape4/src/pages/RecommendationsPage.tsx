@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Drama, Recommendation, Page } from '../types';
 import { fetchDramas } from '../data';
 import { DramaCard } from '../components/DramaCard';
+import { DramaDetailModal } from '../components/DramaDetailModal';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { apiClient, RecommendationAPIError } from '../api';
 import { useAuth } from '../auth';
@@ -19,6 +20,7 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<string>('user');
+  const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
 
   const fetchRecommendations = useCallback(async () => {
     if (!user) {
@@ -115,6 +117,7 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
               drama={d}
               isFav={isFavorite(d.id)}
               onToggleFav={toggleFav}
+              onViewDetails={setSelectedDrama}
               rank={i + 1}
               predictedRating={d.predicted_rating}
               score={d.score}
@@ -122,6 +125,13 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
           ))}
         </div>
       )}
+
+      <DramaDetailModal
+        drama={selectedDrama}
+        isFav={selectedDrama ? isFavorite(selectedDrama.id) : false}
+        onClose={() => setSelectedDrama(null)}
+        onToggleFav={toggleFav}
+      />
     </div>
   );
 }

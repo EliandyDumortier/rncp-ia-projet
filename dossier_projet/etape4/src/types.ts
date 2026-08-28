@@ -22,6 +22,17 @@ export interface FavoriteItem {
   added_at: string;
 }
 
+export interface WatchedDrama {
+  id: number;
+  drama_id: number;
+  drama_title: string;
+  drama_poster: string;
+  rating: number;
+  notes: string;
+  watched_at: string;
+  watched_date: string;
+}
+
 export interface User {
   user_id: number;
   username: string;
@@ -101,7 +112,7 @@ export interface CarouselSlide {
   image: string;
 }
 
-export type Page = 'home' | 'search' | 'recommendations' | 'favorites' | 'profile' | 'login';
+export type Page = 'home' | 'search' | 'recommendations' | 'favorites' | 'history' | 'profile' | 'login';
 export type FlashType = 'success' | 'error' | 'info';
 export interface FlashMessage {
   id: number;
