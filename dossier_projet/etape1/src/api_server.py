@@ -760,44 +760,38 @@ def list_kdramas(
     sort_order: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
     db: Session = Depends(get_db),
 ):
-    logger.info(f"list_kdramas called with page={page}, page_size={page_size}")
-
+    print(f"\n=== list_kdramas START: page={page}, page_size={page_size} ===")
     try:
-        logger.info("Creating query")
+        print("1. Creating query")
         query = db.query(Kdrama)
-        logger.info(f"Query created")
+        print("2. Query created")
 
-        # Filtre de recherche
         if search:
-            logger.info(f"Applying search filter: {search}")
+            print(f"3. Applying search: {search}")
             query = query.filter(
                 (Kdrama.titre.ilike(f"%{search}%"))
                 | (Kdrama.titre_original.ilike(f"%{search}%"))
             )
 
-        # Tri
-        logger.info(f"Applying sort: {sort_by} {sort_order}")
+        print(f"4. Applying sort: {sort_by} {sort_order}")
         sort_column = getattr(Kdrama, sort_by, Kdrama.note_moyenne)
         if sort_order == "desc":
             sort_column = sort_column.desc()
         query = query.order_by(sort_column)
-        logger.info("Sort applied")
 
-        # Total avant pagination
-        logger.info("Counting total")
+        print("5. Counting total")
         total = query.count()
-        logger.info(f"Total count: {total}")
+        print(f"6. Total: {total}")
 
-        # Pagination
         offset = (page - 1) * page_size
-        logger.info(f"Fetching with offset={offset}, limit={page_size}")
+        print(f"7. Fetching offset={offset}, limit={page_size}")
         kdramas = query.offset(offset).limit(page_size).all()
-        logger.info(f"Fetched {len(kdramas)} kdramas")
+        print(f"8. Fetched {len(kdramas)} rows")
 
-        # Simple return - just ID, title, poster
-        logger.info("Building response")
+        print("9. Building items list")
         items = []
-        for k in kdramas:
+        for i, k in enumerate(kdramas):
+            print(f"  - Item {i}: id={k.id}, titre={k.titre[:30] if k.titre else 'None'}")
             items.append({
                 "id": k.id,
                 "titre": k.titre,
@@ -809,6 +803,7 @@ def list_kdramas(
                 "synopsis": k.synopsis or "",
             })
 
+        print(f"10. Built {len(items)} items")
         result = {
             "items": items,
             "total": total,
@@ -816,16 +811,17 @@ def list_kdramas(
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size,
         }
-        logger.info(f"Response built successfully with {len(items)} items")
+        print(f"11. Returning result\n=== list_kdramas SUCCESS ===\n")
         return result
 
     except Exception as e:
+        print(f"\n!!! ERROR: {type(e).__name__}: {e}")
         import traceback
-        logger.error(f"ERROR in list_kdramas: {type(e).__name__}: {e}")
-        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        print(traceback.format_exc())
+        print("!!! END ERROR\n")
         raise HTTPException(
             status_code=500,
-            detail=f"Internal error: {type(e).__name__}: {str(e)}"
+            detail=f"Error: {type(e).__name__}: {str(e)}"
         )
 
 
