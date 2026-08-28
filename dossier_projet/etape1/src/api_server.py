@@ -102,17 +102,29 @@ class Kdrama(Base):
     tmdb_id: Mapped[Optional[int]] = Column(Integer, unique=True)
     titre: Mapped[str] = Column(String(300), nullable=False)
     titre_original: Mapped[Optional[str]] = Column(String(300))
+    english_name: Mapped[Optional[str]] = Column(String(300))
     date_diffusion: Mapped[Optional[datetime]] = Column(DateTime)
     nb_episodes: Mapped[Optional[int]] = Column(Integer)
     nb_saisons: Mapped[Optional[int]] = Column(Integer)
+    duree_episode: Mapped[Optional[int]] = Column(Integer)
+    duree_episode_minutes: Mapped[Optional[int]] = Column(Integer)
     synopsis: Mapped[Optional[str]] = Column(Text)
     note_moyenne: Mapped[Optional[float]] = Column(Float)
     nb_votes: Mapped[Optional[int]] = Column(Integer)
-    langue_originale: Mapped[Optional[str]] = Column(String(10))
-    pays_origine: Mapped[Optional[str]] = Column(String(10), default="KR")
-    duree_episode_minutes: Mapped[Optional[int]] = Column(Integer)
+    langue_originale: Mapped[Optional[str]] = Column(String(100))
+    pays_origine: Mapped[Optional[str]] = Column(String(100), default="KR")
     source: Mapped[str] = Column(String(50), default="tmdb")
     url_source: Mapped[Optional[str]] = Column(String(500))
+    poster: Mapped[Optional[str]] = Column(String(500))
+    genres: Mapped[Optional[str]] = Column(Text)
+    acteurs: Mapped[Optional[str]] = Column(Text)
+    reseaux_diffusion: Mapped[Optional[str]] = Column(Text)
+    tags: Mapped[Optional[str]] = Column(Text)
+    rang: Mapped[Optional[int]] = Column(Integer)
+    popularite: Mapped[Optional[float]] = Column(Float)
+    nb_watchers: Mapped[Optional[int]] = Column(Integer)
+    realisateur: Mapped[Optional[str]] = Column(String(300))
+    scenariste: Mapped[Optional[str]] = Column(String(300))
     date_creation: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
     date_modification: Mapped[datetime] = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -311,14 +323,26 @@ class KdramaBase(BaseModel):
     """Modèle de base pour un K-Drama."""
     titre: str = Field(..., max_length=300, description="International title of the K-Drama")
     titre_original: Optional[str] = Field(None, max_length=300)
+    english_name: Optional[str] = Field(None, max_length=300)
     date_diffusion: Optional[datetime] = None
     nb_episodes: Optional[int] = Field(None, gt=0)
     nb_saisons: Optional[int] = Field(None, gt=0)
+    duree_episode: Optional[int] = None
     synopsis: Optional[str] = None
     note_moyenne: Optional[float] = Field(None, ge=0, le=10)
     nb_votes: Optional[int] = Field(None, ge=0)
-    langue_originale: Optional[str] = Field(None, max_length=10)
-    pays_origine: Optional[str] = Field("KR", max_length=10)
+    langue_originale: Optional[str] = Field(None, max_length=100)
+    pays_origine: Optional[str] = Field("KR", max_length=100)
+    poster: Optional[str] = None
+    genres: Optional[str] = None
+    acteurs: Optional[str] = None
+    reseaux_diffusion: Optional[str] = None
+    tags: Optional[str] = None
+    rang: Optional[int] = None
+    popularite: Optional[float] = None
+    nb_watchers: Optional[int] = None
+    realisateur: Optional[str] = None
+    scenariste: Optional[str] = None
 
     class Config:
         from_attributes = True
