@@ -715,15 +715,38 @@ def export_my_data(
 # ---------------------------------------------------------------------------
 # Endpoints CRUD — K-Dramas
 # ---------------------------------------------------------------------------
-@app.get("/api/v1/test")
-def test_endpoint():
-    """Simple test endpoint."""
-    return {"status": "ok", "message": "API is working"}
+@app.get("/api/v1/test-simple")
+def test_simple():
+    """Simple test without database."""
+    logger.info("test_simple endpoint called")
+    return {"status": "ok", "message": "Simple test works"}
+
+
+@app.get("/api/v1/kdramas-simple")
+def list_kdramas_simple(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    db: Session = Depends(get_db),
+):
+    """Test kdramas endpoint with database."""
+    logger.info(f"list_kdramas_simple called")
+
+    try:
+        logger.info("Querying kdramas from database")
+        kdramas = db.query(Kdrama).limit(page_size).all()
+        logger.info(f"Got {len(kdramas)} kdramas")
+
+        return {
+            "items": [{"id": k.id, "titre": k.titre, "poster": k.poster} for k in kdramas],
+            "total": len(kdramas),
+        }
+    except Exception as e:
+        logger.error(f"ERROR: {type(e).__name__}: {e}", exc_info=True)
+        raise
 
 
 @app.get(
     "/api/v1/kdramas",
-    response_model=PaginatedResponse,
     summary="Liste paginée des K-Dramas",
     description="Returns a paginated, sortable list of K-Dramas with optional search.",
 )
@@ -735,42 +758,80 @@ def list_kdramas(
     sort_order: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
     db: Session = Depends(get_db),
 ):
-    """Retourne la liste paginée des K-Dramas."""
+    logger.info(f"list_kdramas called with page={page}, page_size={page_size}")
+
     try:
+        logger.info("Creating query")
         query = db.query(Kdrama)
+        logger.info(f"Query created: {query}")
 
         # Filtre de recherche
         if search:
+            logger.info(f"Applying search filter: {search}")
             query = query.filter(
                 (Kdrama.titre.ilike(f"%{search}%"))
                 | (Kdrama.titre_original.ilike(f"%{search}%"))
             )
 
         # Tri
+        logger.info(f"Applying sort: {sort_by} {sort_order}")
         sort_column = getattr(Kdrama, sort_by, Kdrama.note_moyenne)
         if sort_order == "desc":
             sort_column = sort_column.desc()
         query = query.order_by(sort_column)
+        logger.info("Sort applied")
 
         # Total avant pagination
+        logger.info("Counting total")
         total = query.count()
+        logger.info(f"Total count: {total}")
 
         # Pagination
         offset = (page - 1) * page_size
+        logger.info(f"Fetching with offset={offset}, limit={page_size}")
         kdramas = query.offset(offset).limit(page_size).all()
+        logger.info(f"Fetched {len(kdramas)} kdramas")
 
-        return {
-            "items": kdramas,
+        # Return as JSON-serializable dict instead of using response_model
+        logger.info("Building response dict")
+        result = {
+            "items": [
+                {
+                    "id": k.id,
+                    "tmdb_id": k.tmdb_id,
+                    "titre": k.titre,
+                    "titre_original": k.titre_original,
+                    "english_name": k.english_name,
+                    "date_diffusion": k.date_diffusion.isoformat() if k.date_diffusion else None,
+                    "nb_episodes": k.nb_episodes,
+                    "nb_saisons": k.nb_saisons,
+                    "synopsis": k.synopsis,
+                    "note_moyenne": float(k.note_moyenne) if k.note_moyenne else None,
+                    "nb_votes": k.nb_votes,
+                    "langue_originale": k.langue_originale,
+                    "pays_origine": k.pays_origine,
+                    "poster": k.poster,
+                    "genres": k.genres,
+                    "source": k.source,
+                }
+                for k in kdramas
+            ],
             "total": total,
             "page": page,
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size,
         }
+        logger.info("Response built successfully")
+        return result
+
     except Exception as e:
         import traceback
-        logger.error(f"Error in list_kdramas: {type(e).__name__}: {e}")
-        logger.error(traceback.format_exc())
-        raise
+        logger.error(f"ERROR in list_kdramas: {type(e).__name__}: {e}")
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error: {type(e).__name__}: {str(e)}"
+        )
 
 
 @app.get(
