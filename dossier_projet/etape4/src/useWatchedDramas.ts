@@ -26,7 +26,7 @@ export function useWatchedDramas(userId: number | null) {
   const [watched, setWatched] = useState<WatchedDrama[]>(() => loadWatchedDramas(userId));
 
   const addWatchedDrama = useCallback(
-    (drama: Drama, rating: number, notes: string = '') => {
+    (drama: Drama, rating: number = 0, notes: string = '') => {
       setWatched((prev) => {
         // Update if already exists, otherwise add new
         const existing = prev.findIndex((w) => w.drama_id === drama.id);

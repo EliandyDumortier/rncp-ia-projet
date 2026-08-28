@@ -72,9 +72,8 @@ export function SearchPage({ nav }: SearchPageProps) {
       nav('login');
       return;
     }
-    setSelectedDrama(null);
-    nav('history');
-    flash(`Go to "My List" to rate "${drama.title}"`, 'info');
+    addWatchedDrama(drama, 0, '');
+    flash(`Added "${drama.title}" to your watch list! Rate it in "My List".`, 'success');
   };
 
   return (

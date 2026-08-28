@@ -1,4 +1,4 @@
-import { Sparkles, AlertCircle, RefreshCw, Send } from 'lucide-react';
+import { Sparkles, AlertCircle, RefreshCw, Send, ArrowLeft } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import type { Drama, Recommendation, Page } from '../types';
 import { fetchDramas } from '../data';
@@ -28,9 +28,8 @@ const MOOD_GENRES = [
 export function RecommendationsPage({ nav }: RecommendationsPageProps) {
   const { user, flash } = useAuth();
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites(user?.user_id ?? null);
-  const { watchedDramas } = useWatchedDramas(user?.user_id ?? null);
+  const { watchedDramas, isWatched, addWatchedDrama } = useWatchedDramas(user?.user_id ?? null);
 
-  const [tab, setTab] = useState<'chat' | 'history'>('chat');
   const [description, setDescription] = useState('');
   const [selectedMoods, setSelectedMoods] = useState<string[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
@@ -38,7 +37,7 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
-  const [mode, setMode] = useState<string>('user');
+  const [showingResults, setShowingResults] = useState(false);
 
   const fetchRecommendations = useCallback(async () => {
     if (!user) {
@@ -51,13 +50,11 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
     try {
       const result = await apiClient.getRecommendations(user.user_id, null, 12);
       setRecommendations(result.recommendations || []);
-      setMode(result.mode || 'user');
     } catch (err) {
       if (err instanceof RecommendationAPIError) {
         setError(err.message);
         const fallback = await fetchDramas(1, 12, undefined, 'note_moyenne', 'desc');
         setRecommendations(fallback.items);
-        setMode('fallback');
       } else {
         setError('An unexpected error occurred.');
       }
@@ -78,20 +75,30 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
       return;
     }
 
+    setError(null);
+    setShowingResults(true);
     await fetchRecommendations();
   };
+
+  const fetchHistoryRecommendations = useCallback(async () => {
+    if (!user || watchedDramas.length === 0) return;
+    setLoading(true);
+    try {
+      const result = await apiClient.getRecommendations(user.user_id, null, 12);
+      setHistoryRecommendations(result.recommendations || []);
+    } catch {
+      const fallback = await fetchDramas(1, 12, undefined, 'note_moyenne', 'desc');
+      setHistoryRecommendations(fallback.items);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, watchedDramas]);
 
   const handleMoodToggle = (mood: string) => {
     setSelectedMoods(prev =>
       prev.includes(mood) ? prev.filter(m => m !== mood) : [...prev, mood]
     );
   };
-
-  useEffect(() => {
-    if (tab === 'history' && watchedDramas.length > 0) {
-      fetchRecommendations();
-    }
-  }, [tab, watchedDramas, fetchRecommendations]);
 
   const toggleFav = (drama: Drama) => {
     if (!user) return;
@@ -103,6 +110,17 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
       addFavorite(drama);
       flash(`Added "${drama.title}" to your favorites.`, 'success');
     }
+  };
+
+  const handleAddToWatched = (drama: Drama) => {
+    if (!user) {
+      flash('Please sign in to track watched dramas.', 'info');
+      nav('login');
+      return;
+    }
+    setSelectedDrama(null);
+    nav('history');
+    flash(`Go to "My List" to rate "${drama.title}"`, 'info');
   };
 
   if (!user) {

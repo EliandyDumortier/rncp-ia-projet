@@ -40,12 +40,14 @@ export function HistoryPage({ nav }: HistoryPageProps) {
   };
 
   const handleSaveRating = () => {
-    if (!selectedDrama || rating === 0) {
-      flash('Please select a rating between 1 and 10.', 'info');
-      return;
-    }
+    if (!selectedDrama) return;
     addWatchedDrama(selectedDrama, rating, notes);
-    flash(`Added "${selectedDrama.title}" to your watched list!`, 'success');
+    flash(
+      rating === 0
+        ? `Added "${selectedDrama.title}" to your watched list!`
+        : `Saved rating for "${selectedDrama.title}"!`,
+      'success'
+    );
     setShowForm(false);
     setRating(0);
     setNotes('');
@@ -160,7 +162,7 @@ export function HistoryPage({ nav }: HistoryPageProps) {
                   onClick={handleSaveRating}
                   className="px-4 py-2 bg-rose-500 text-white rounded-lg hover:bg-rose-600 transition-colors font-semibold"
                 >
-                  Save Rating
+                  {rating === 0 ? 'Save' : 'Save Rating'}
                 </button>
               </div>
             </div>
@@ -198,7 +200,7 @@ export function HistoryPage({ nav }: HistoryPageProps) {
                       <Star
                         key={num}
                         className={`w-4 h-4 ${
-                          num <= Math.round(w.rating / 2)
+                          w.rating > 0 && num <= Math.round(w.rating / 2)
                             ? 'text-amber-400 fill-amber-400'
                             : 'text-gray-300'
                         }`}
@@ -206,7 +208,13 @@ export function HistoryPage({ nav }: HistoryPageProps) {
                     ))}
                   </div>
 
-                  <p className="text-sm font-semibold text-rose-600 mb-1">{w.rating}/10</p>
+                  <p className="text-sm font-semibold mb-1">
+                    {w.rating > 0 ? (
+                      <span className="text-rose-600">{w.rating}/10</span>
+                    ) : (
+                      <span className="text-gray-400">Not rated yet</span>
+                    )}
+                  </p>
 
                   {w.notes && (
                     <p className="text-xs text-gray-600 line-clamp-2 mb-2">"{w.notes}"</p>
@@ -219,7 +227,7 @@ export function HistoryPage({ nav }: HistoryPageProps) {
                       onClick={() => handleAddDrama({ ...w, id: w.drama_id, genres: [] })}
                       className="flex-1 px-2 py-1 text-xs bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
                     >
-                      Edit
+                      {w.rating > 0 ? 'Edit' : 'Add Rating'}
                     </button>
                     <button
                       onClick={() => {
