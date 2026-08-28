@@ -28,7 +28,7 @@ const MOOD_GENRES = [
 export function RecommendationsPage({ nav }: RecommendationsPageProps) {
   const { user, flash } = useAuth();
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites(user?.user_id ?? null);
-  const { watchedDramas, isWatched, addWatchedDrama } = useWatchedDramas(user?.user_id ?? null);
+  const { watched: watchedDramas, isWatched, addWatchedDrama } = useWatchedDramas(user?.user_id ?? null);
 
   const [description, setDescription] = useState('');
   const [selectedMoods, setSelectedMoods] = useState<string[]>([]);
