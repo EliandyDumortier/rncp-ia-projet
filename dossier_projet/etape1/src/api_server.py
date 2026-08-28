@@ -745,29 +745,6 @@ def list_kdramas_simple(
         raise
 
 
-@app.get("/api/v1/kdramas/debug/count", summary="Debug: Count kdramas")
-def debug_kdrama_count(db: Session = Depends(get_db)):
-    """Debug endpoint to test basic database connection."""
-    try:
-        count = db.query(Kdrama).count()
-        first = db.query(Kdrama).first()
-        return {
-            "status": "ok",
-            "total_count": count,
-            "first_drama": {
-                "id": first.id if first else None,
-                "titre": first.titre if first else None,
-                "poster": first.poster if first else None,
-            } if first else None
-        }
-    except Exception as e:
-        import traceback
-        return {
-            "status": "error",
-            "error": str(e),
-            "type": type(e).__name__,
-            "traceback": traceback.format_exc()
-        }
 
 
 @app.get(
@@ -788,7 +765,7 @@ def list_kdramas(
     try:
         logger.info("Creating query")
         query = db.query(Kdrama)
-        logger.info(f"Query created: {query}")
+        logger.info(f"Query created")
 
         # Filtre de recherche
         if search:
@@ -817,36 +794,29 @@ def list_kdramas(
         kdramas = query.offset(offset).limit(page_size).all()
         logger.info(f"Fetched {len(kdramas)} kdramas")
 
-        # Return as JSON-serializable dict instead of using response_model
-        logger.info("Building response dict")
+        # Simple return - just ID, title, poster
+        logger.info("Building response")
+        items = []
+        for k in kdramas:
+            items.append({
+                "id": k.id,
+                "titre": k.titre,
+                "poster": k.poster,
+                "genres": k.genres,
+                "note_moyenne": float(k.note_moyenne) if k.note_moyenne else 0,
+                "nb_episodes": k.nb_episodes or 0,
+                "annee_diffusion": k.annee_diffusion or 0,
+                "synopsis": k.synopsis or "",
+            })
+
         result = {
-            "items": [
-                {
-                    "id": k.id,
-                    "tmdb_id": k.tmdb_id,
-                    "titre": k.titre,
-                    "titre_original": k.titre_original,
-                    "english_name": k.english_name,
-                    "date_diffusion": k.date_diffusion.isoformat() if k.date_diffusion else None,
-                    "nb_episodes": k.nb_episodes,
-                    "nb_saisons": k.nb_saisons,
-                    "synopsis": k.synopsis,
-                    "note_moyenne": float(k.note_moyenne) if k.note_moyenne else None,
-                    "nb_votes": k.nb_votes,
-                    "langue_originale": k.langue_originale,
-                    "pays_origine": k.pays_origine,
-                    "poster": k.poster,
-                    "genres": k.genres,
-                    "source": k.source,
-                }
-                for k in kdramas
-            ],
+            "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size,
         }
-        logger.info("Response built successfully")
+        logger.info(f"Response built successfully with {len(items)} items")
         return result
 
     except Exception as e:
@@ -857,6 +827,7 @@ def list_kdramas(
             status_code=500,
             detail=f"Internal error: {type(e).__name__}: {str(e)}"
         )
+
 
 
 @app.get(
