@@ -49,15 +49,22 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
     setLoading(true);
     setError(null);
     try {
+      console.log('Fetching recommendations from API...');
       const result = await apiClient.getRecommendations(user.user_id, null, 12);
-      setRecommendations(result.recommendations || []);
+      console.log('API Response:', result);
+      const recs = result.recommendations || [];
+      console.log(`Setting ${recs.length} recommendations`);
+      setRecommendations(recs);
     } catch (err) {
+      console.error('Error fetching recommendations:', err);
       if (err instanceof RecommendationAPIError) {
         setError(err.message);
         const fallback = await fetchDramas(1, 12, undefined, 'note_moyenne', 'desc');
         setRecommendations(fallback.items);
       } else {
-        setError('An unexpected error occurred.');
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        setError(`Error: ${errorMsg}`);
+        console.error('Full error:', err);
       }
     } finally {
       setLoading(false);
@@ -256,19 +263,26 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
         <LoadingSkeleton count={12} />
       ) : showingResults && ((viewMode === 'preferences' && recommendations.length > 0) || (viewMode === 'history' && historyRecommendations.length > 0)) ? (
         <div role="list" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {(viewMode === 'preferences' ? recommendations : historyRecommendations).map((d, i) => (
-            <DramaCard
-              key={d.id}
-              drama={d}
-              isFav={isFavorite(d.id)}
-              onToggleFav={toggleFav}
-              onViewDetails={setSelectedDrama}
-              rank={i + 1}
-              predictedRating={d.predicted_rating}
-              score={d.score}
-              isWatched={isWatched(d.id)}
-            />
-          ))}
+          {(viewMode === 'preferences' ? recommendations : historyRecommendations).map((d, i) => {
+            try {
+              return (
+                <DramaCard
+                  key={d.id}
+                  drama={d}
+                  isFav={isFavorite(d.id)}
+                  onToggleFav={toggleFav}
+                  onViewDetails={setSelectedDrama}
+                  rank={i + 1}
+                  predictedRating={d.predicted_rating}
+                  score={d.score}
+                  isWatched={isWatched(d.id)}
+                />
+              );
+            } catch (err) {
+              console.error(`Error rendering drama ${i}:`, d, err);
+              return <div key={d.id} className="text-red-500 text-sm">Error loading drama</div>;
+            }
+          })}
         </div>
       ) : showingResults ? (
         <div className="text-center py-12 text-gray-400">
