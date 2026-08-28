@@ -935,8 +935,12 @@ class DataAggregator:
                     if isinstance(x, (list, dict)) else x
                 )
 
+        # Remove generated columns that shouldn't be inserted
+        if "annee_diffusion" in df_export.columns:
+            df_export = df_export.drop(columns=["annee_diffusion"])
+
         try:
-            df_export.to_sql("kdramas", self.engine, if_exists="append", index=False)
+            df_export.to_sql("kdramas", self.engine, if_exists="append", index=False, schema="kdrama")
             logger.info("Export base de données: %d enregistrements insérés", len(df_export))
         except Exception as e:
             logger.error("Erreur d'export en base: %s", e)
