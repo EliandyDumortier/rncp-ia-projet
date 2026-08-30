@@ -486,6 +486,20 @@ app.add_middleware(
 )
 
 
+# Middleware pour logger tous les requêtes
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"\n>>> REQUEST: {request.method} {request.url.path}", flush=True)
+    try:
+        response = await call_next(request)
+        print(f"<<< RESPONSE: {response.status_code}", flush=True)
+        return response
+    except Exception as e:
+        print(f"!!! ERROR: {type(e).__name__}: {e}", flush=True)
+        raise
+
+
+
 # Dépendance : session de base de données
 def get_db():
     """Fournit une session de base de données par requête.
