@@ -74,7 +74,7 @@ def _get_snapshot_path() -> Path:
         / "etape1"
         / "data"
         / "clean"
-        / "kdramas_clean.csv"
+        / "kdramas_clean.json"
     )
 
 
@@ -162,13 +162,17 @@ def _load_embedded_catalog() -> pd.DataFrame:
 
 
 def _load_dramas_from_snapshot(snapshot_path: Path | None = None) -> pd.DataFrame:
-    """Charge le catalogue depuis un snapshot CSV local compatible CI."""
+    """Charge le catalogue depuis un snapshot (CSV ou JSON) local."""
     path = snapshot_path or _get_snapshot_path()
     if not path.exists():
         logger.warning("Local snapshot not found: %s", path)
         return _load_embedded_catalog()
 
-    raw_df = pd.read_csv(path)
+    # Load based on file extension
+    if path.suffix.lower() == '.json':
+        raw_df = pd.read_json(path)
+    else:
+        raw_df = pd.read_csv(path)
 
     # Harmonise les colonnes du snapshot étape 1 vers le schéma attendu.
     dramas_df = pd.DataFrame(
