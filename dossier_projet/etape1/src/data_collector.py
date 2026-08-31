@@ -49,6 +49,39 @@ logger = logging.getLogger("data_collector")
 # Chargement des variables d'environnement depuis le fichier .env
 load_dotenv()
 
+
+def is_drama_only(data: dict) -> bool:
+    """Filter to keep only K-Dramas, exclude cartoons/concerts/shows.
+
+    Checks if genres contain drama keywords and excludes non-drama content.
+
+    Args:
+        data: Dictionary with 'genres', 'titre', 'synopsis' keys.
+
+    Returns:
+        True if content is a drama, False otherwise.
+    """
+    genres = data.get("genres", [])
+    if isinstance(genres, str):
+        genres = [genres]
+    genres = [str(g).lower() for g in genres if g]
+
+    title = str(data.get("titre", "")).lower()
+    synopsis = str(data.get("synopsis", "")).lower()
+
+    # Exclude non-drama genres
+    if any(excluded.lower() in genres for excluded in EXCLUDE_GENRES):
+        return False
+
+    # Exclude non-drama keywords in title/synopsis
+    if any(keyword in title or keyword in synopsis for keyword in EXCLUDE_KEYWORDS):
+        return False
+
+    # Accept if contains drama keyword
+    has_drama = any(keyword.lower() in genres for keyword in DRAMA_GENRES)
+    return has_drama
+
+
 # ---------------------------------------------------------------------------
 # Constantes globales
 # ---------------------------------------------------------------------------
@@ -58,6 +91,19 @@ DEFAULT_DELAY = float(os.getenv("SCRAPE_DELAY_SECONDS", "2"))
 DEFAULT_TIMEOUT = 30
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "data" / "raw"
+
+# Drama-only filter: genres to keep
+DRAMA_GENRES = {"Drama", "Melodrama", "Thriller", "Mystery", "Crime", "Psychological"}
+# Genres/keywords to exclude (non-drama content)
+EXCLUDE_GENRES = {
+    "Animation", "Anime", "Variety", "Talk", "Reality",
+    "Game Show", "Documentary", "News", "Sport", "Concert"
+}
+EXCLUDE_KEYWORDS = {
+    "concert", "musical performance", "game show",
+    "variety show", "talk show", "reality show", "cartoon",
+    "anime", "animated"
+}
 
 
 # ===========================================================================
@@ -386,6 +432,12 @@ class TMDBCollector:
             cast = self.collect_kdrama_cast(kdrama_id)
 
             normalized = self.normalize_kdrama(kdrama_raw, details)
+
+            # Filter: keep only drama content
+            if not is_drama_only(normalized):
+                logger.debug("Filtered out (not a drama): %s", normalized.get("titre"))
+                continue
+
             normalized["acteurs"] = cast
             kdramas_normalized.append(normalized)
 
@@ -1188,8 +1240,12 @@ class MyDramaListScraper:
                         continue
                     seen_urls.add(drama_url)
                     kdrama_data = self.scrape_drama_page(drama_url)
-                    if kdrama_data:
+
+                    # Filter: keep only drama content
+                    if kdrama_data and is_drama_only(kdrama_data):
                         all_kdramas.append(kdrama_data)
+                    elif kdrama_data:
+                        logger.debug("Filtered out (not a drama): %s", kdrama_data.get("titre"))
 
             logger.info("Page %d: %d K-Dramas scrapés (total: %d)", page, len(drama_links), len(all_kdramas))
 
