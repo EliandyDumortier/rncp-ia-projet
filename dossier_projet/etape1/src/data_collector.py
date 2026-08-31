@@ -228,8 +228,11 @@ class TMDBCollector:
     def collect_kdramas(self, max_pages: int = 50) -> list[dict]:
         """Collecte la liste des K-Dramas via l'endpoint discover/tv.
 
-        Filtre sur le pays d'origine (Corée du Sud = KR) et trie par
-        popularité décroissante. L'API TMDB pagine les résultats (20 par page).
+        Filtre sur :
+        - Pays d'origine: Corée du Sud (KR)
+        - Genre: Drama (ID 18)
+        - Langue originale: Korean (ko)
+        - Tri: popularité décroissante
 
         Args:
             max_pages: Nombre maximum de pages à parcourir (20 résultats/page).
@@ -243,6 +246,8 @@ class TMDBCollector:
         for page in range(1, max_pages + 1):
             params = {
                 "with_origin_country": "KR",
+                "with_genres": "18",  # Drama genre ID
+                "with_original_language": "ko",  # Korean language
                 "sort_by": "popularity.desc",
                 "page": page,
             }
