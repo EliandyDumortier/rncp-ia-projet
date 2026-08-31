@@ -5,6 +5,7 @@ import { useAuth } from '../auth';
 import { useFavorites } from '../useFavorites';
 import { useWatchedDramas } from '../useWatchedDramas';
 import { DramaDetailModal } from '../components/DramaDetailModal';
+import { fetchDramaByTitle } from '../data';
 
 interface FavoritesPageProps {
   nav: (p: Page) => void;
@@ -74,16 +75,12 @@ export function FavoritesPage({ nav }: FavoritesPageProps) {
               <li
                 key={fav.id}
                 className="group relative bg-white rounded-3xl overflow-hidden shadow-soft border border-slate-100 hover:shadow-card transition-all cursor-pointer hover:-translate-y-1"
-                onClick={() => setSelectedDrama({
-                  id: fav.drama_id,
-                  title: fav.drama_title,
-                  poster: fav.drama_poster,
-                  genres: [],
-                  rating: 0,
-                  year: 0,
-                  episodes: 0,
-                  synopsis: ''
-                })}
+                onClick={async () => {
+                  const fullDrama = await fetchDramaByTitle(fav.drama_title);
+                  if (fullDrama) {
+                    setSelectedDrama(fullDrama);
+                  }
+                }}
               >
                 <div className="relative aspect-[2/3] overflow-hidden">
                   <img

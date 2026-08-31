@@ -1,7 +1,7 @@
 import { Trash2, Star, Plus } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { Drama, Page } from '../types';
-import { fetchDramas } from '../data';
+import { fetchDramas, fetchDramaByTitle } from '../data';
 import { useAuth } from '../auth';
 import { useWatchedDramas } from '../useWatchedDramas';
 import { useFavorites } from '../useFavorites';
@@ -216,30 +216,22 @@ export function HistoryPage({ nav }: HistoryPageProps) {
                   src={w.drama_poster}
                   alt={w.drama_title}
                   className="w-20 h-32 object-cover rounded-lg flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => setSelectedDetailDrama({
-                    id: w.drama_id,
-                    title: w.drama_title,
-                    poster: w.drama_poster,
-                    genres: [],
-                    rating: 0,
-                    year: 0,
-                    episodes: 0,
-                    synopsis: ''
-                  })}
+                  onClick={async () => {
+                    const fullDrama = await fetchDramaByTitle(w.drama_title);
+                    if (fullDrama) {
+                      setSelectedDetailDrama(fullDrama);
+                    }
+                  }}
                 />
                 <div className="flex-1 min-w-0">
                   <h3
                     className="font-display font-bold text-slate-800 line-clamp-2 mb-2 cursor-pointer hover:text-rose-600 transition-colors"
-                    onClick={() => setSelectedDetailDrama({
-                      id: w.drama_id,
-                      title: w.drama_title,
-                      poster: w.drama_poster,
-                      genres: [],
-                      rating: 0,
-                      year: 0,
-                      episodes: 0,
-                      synopsis: ''
-                    })}
+                    onClick={async () => {
+                      const fullDrama = await fetchDramaByTitle(w.drama_title);
+                      if (fullDrama) {
+                        setSelectedDetailDrama(fullDrama);
+                      }
+                    }}
                   >
                     {w.drama_title}
                   </h3>

@@ -290,6 +290,14 @@ export async function fetchGenres(): Promise<string[]> {
   }
 }
 
+export async function fetchDramaByTitle(title: string): Promise<Drama | null> {
+  const result = await fetchDramas(1, 1, title, 'titre', 'asc');
+  if (result.items.length > 0) {
+    return result.items[0];
+  }
+  return null;
+}
+
 export function truncateChars(text: string, length: number = 150): string {
   if (!text) return "";
   if (text.length <= length) return text;
