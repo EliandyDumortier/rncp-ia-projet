@@ -87,9 +87,9 @@ def is_drama_only(data: dict) -> bool:
 # ---------------------------------------------------------------------------
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 MYDRAMALIST_BASE_URL = "https://mydramalist.com"
-DEFAULT_DELAY = float(os.getenv("SCRAPE_DELAY_SECONDS", "2"))
-DEFAULT_TIMEOUT = 30
-DEFAULT_MAX_RETRIES = 3
+DEFAULT_DELAY = float(os.getenv("SCRAPE_DELAY_SECONDS", "5"))  # Increased from 2 to 5 seconds
+DEFAULT_TIMEOUT = 60  # Increased from 30 to 60 seconds
+DEFAULT_MAX_RETRIES = 5  # Increased from 3 to 5 attempts
 DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "data" / "raw"
 
 # Drama-only filter: genres to keep
