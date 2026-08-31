@@ -74,7 +74,7 @@ export function HistoryPage({ nav }: HistoryPageProps) {
           <p className="text-gray-500">Rate the dramas you've watched to improve recommendations</p>
         </div>
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => nav('search')}
           className="flex items-center gap-2 bg-rose-500 text-white px-6 py-3 rounded-2xl font-semibold hover:bg-rose-600 transition-colors"
         >
           <Plus className="w-4 h-4" /> Add Drama
@@ -173,9 +173,16 @@ export function HistoryPage({ nav }: HistoryPageProps) {
       {loading ? (
         <LoadingSkeleton count={6} />
       ) : watched.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
-          <Star className="w-12 h-12 mx-auto mb-4 opacity-40" aria-hidden="true" />
-          <p>No watched dramas yet. Start rating to improve your recommendations!</p>
+        <div className="text-center py-16">
+          <Star className="w-12 h-12 mx-auto mb-4 text-rose-400 opacity-40" aria-hidden="true" />
+          <h2 className="text-xl font-semibold text-slate-800 mb-2">No dramas added yet</h2>
+          <p className="text-gray-500 mb-6">Start adding dramas to your watchlist to track ratings and get personalized recommendations</p>
+          <button
+            onClick={() => nav('search')}
+            className="inline-flex items-center gap-2 bg-rose-500 text-white px-6 py-3 rounded-2xl font-semibold hover:bg-rose-600 transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Add Your First Drama
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
