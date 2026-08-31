@@ -47,3 +47,6 @@ python-multipart
 
 # --- Outil de tests ---
 pytest>=8.0.0,<9.0.0
+
+# --- Outil de tests asynchrones ---
+aiohttp
