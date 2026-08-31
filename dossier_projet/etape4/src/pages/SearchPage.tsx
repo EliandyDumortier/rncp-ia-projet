@@ -13,7 +13,7 @@ interface SearchPageProps {
   nav: (p: Page) => void;
 }
 
-const ITEMS_PER_PAGE = 25;
+const ITEMS_PER_PAGE = 24;
 
 export function SearchPage({ nav }: SearchPageProps) {
   const { user, flash } = useAuth();
