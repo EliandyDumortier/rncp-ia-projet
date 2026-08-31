@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import type { Drama, Page } from '../types';
 import { fetchDramas, fetchGenres, dramas, allGenres } from '../data';
@@ -13,6 +13,8 @@ interface SearchPageProps {
   nav: (p: Page) => void;
 }
 
+const ITEMS_PER_PAGE = 25;
+
 export function SearchPage({ nav }: SearchPageProps) {
   const { user, flash } = useAuth();
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites(user?.user_id ?? null);
@@ -24,6 +26,7 @@ export function SearchPage({ nav }: SearchPageProps) {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [fallback, setFallback] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -33,9 +36,10 @@ export function SearchPage({ nav }: SearchPageProps) {
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    setCurrentPage(1); // Reset to page 1 when search/filter changes
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
-      const result = await fetchDramas(1, 24, query || undefined, 'note_moyenne', 'desc');
+      const result = await fetchDramas(1, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc');
       setResults(result.items);
       setTotal(result.total);
       setFallback(result.fallback);
@@ -46,9 +50,26 @@ export function SearchPage({ nav }: SearchPageProps) {
     };
   }, [query]);
 
+  // Fetch new page when currentPage changes
+  useEffect(() => {
+    if (currentPage === 1) return; // Already loaded on search
+    setLoading(true);
+    const fetchPage = async () => {
+      const result = await fetchDramas(currentPage, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc');
+      setResults(result.items);
+      setTotal(result.total);
+      setLoading(false);
+    };
+    fetchPage();
+  }, [currentPage, query]);
+
   const filtered = genreFilter === 'All genres'
     ? results
     : results.filter((d) => d.genres.includes(genreFilter));
+
+  const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+  const hasNextPage = currentPage < totalPages;
+  const hasPrevPage = currentPage > 1;
 
   const toggleFav = (drama: Drama) => {
     if (!user) {
@@ -121,18 +142,49 @@ export function SearchPage({ nav }: SearchPageProps) {
           <p>No results found.</p>
         </div>
       ) : (
-        <div role="list" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {filtered.map((d) => (
-            <DramaCard
-              key={d.id}
-              drama={d}
-              isFav={isFavorite(d.id)}
-              onToggleFav={toggleFav}
-              onViewDetails={setSelectedDrama}
-              isWatched={isWatched(d.id)}
-            />
-          ))}
-        </div>
+        <>
+          <div role="list" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
+            {filtered.map((d) => (
+              <DramaCard
+                key={d.id}
+                drama={d}
+                isFav={isFavorite(d.id)}
+                onToggleFav={toggleFav}
+                onViewDetails={setSelectedDrama}
+                isWatched={isWatched(d.id)}
+              />
+            ))}
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="flex items-center justify-between py-8 border-t border-slate-200">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={!hasPrevPage}
+              className="flex items-center gap-2 px-4 py-2 border-2 border-rose-400 text-rose-500 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-rose-50 transition-colors"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="w-5 h-5" aria-hidden="true" />
+              Previous
+            </button>
+
+            <div className="text-sm text-gray-600">
+              Page <span className="font-semibold">{currentPage}</span> of <span className="font-semibold">{totalPages || 1}</span>
+              <span className="text-gray-400 mx-2">•</span>
+              <span className="font-semibold">{total}</span> dramas total
+            </div>
+
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={!hasNextPage}
+              className="flex items-center gap-2 px-4 py-2 border-2 border-rose-400 text-rose-500 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-rose-50 transition-colors"
+              aria-label="Next page"
+            >
+              Next
+              <ChevronRight className="w-5 h-5" aria-hidden="true" />
+            </button>
+          </div>
+        </>
       )}
 
       <DramaDetailModal
