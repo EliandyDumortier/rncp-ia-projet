@@ -4,6 +4,8 @@ import type { Drama, Page } from '../types';
 import { fetchDramas } from '../data';
 import { useAuth } from '../auth';
 import { useWatchedDramas } from '../useWatchedDramas';
+import { useFavorites } from '../useFavorites';
+import { DramaDetailModal } from '../components/DramaDetailModal';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 
 interface HistoryPageProps {
@@ -15,9 +17,11 @@ export function HistoryPage({ nav }: HistoryPageProps) {
   const { watched, addWatchedDrama, removeWatchedDrama, getWatchedDrama } = useWatchedDramas(
     user?.user_id ?? null
   );
+  const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites(user?.user_id ?? null);
   const [allDramas, setAllDramas] = useState<Drama[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
+  const [selectedDetailDrama, setSelectedDetailDrama] = useState<Drama | null>(null);
   const [rating, setRating] = useState(0);
   const [notes, setNotes] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -52,6 +56,22 @@ export function HistoryPage({ nav }: HistoryPageProps) {
     setRating(0);
     setNotes('');
     setSelectedDrama(null);
+  };
+
+  const toggleFav = (drama: Drama) => {
+    if (!user) {
+      flash('Please sign in to manage favorites.', 'info');
+      nav('login');
+      return;
+    }
+    if (isFavorite(drama.id)) {
+      const fav = favorites.find((f) => f.drama_id === drama.id);
+      if (fav) removeFavorite(fav.id);
+      flash(`Removed "${drama.title}" from favorites.`, 'info');
+    } else {
+      addFavorite(drama);
+      flash(`Added "${drama.title}" to favorites.`, 'success');
+    }
   };
 
   if (!user) {
@@ -195,10 +215,32 @@ export function HistoryPage({ nav }: HistoryPageProps) {
                 <img
                   src={w.drama_poster}
                   alt={w.drama_title}
-                  className="w-20 h-32 object-cover rounded-lg flex-shrink-0"
+                  className="w-20 h-32 object-cover rounded-lg flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => setSelectedDetailDrama({
+                    id: w.drama_id,
+                    title: w.drama_title,
+                    poster: w.drama_poster,
+                    genres: [],
+                    rating: 0,
+                    year: 0,
+                    episodes: 0,
+                    synopsis: ''
+                  })}
                 />
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-display font-bold text-slate-800 line-clamp-2 mb-2">
+                  <h3
+                    className="font-display font-bold text-slate-800 line-clamp-2 mb-2 cursor-pointer hover:text-rose-600 transition-colors"
+                    onClick={() => setSelectedDetailDrama({
+                      id: w.drama_id,
+                      title: w.drama_title,
+                      poster: w.drama_poster,
+                      genres: [],
+                      rating: 0,
+                      year: 0,
+                      episodes: 0,
+                      synopsis: ''
+                    })}
+                  >
                     {w.drama_title}
                   </h3>
 
@@ -261,6 +303,14 @@ export function HistoryPage({ nav }: HistoryPageProps) {
           ))}
         </div>
       )}
+
+      <DramaDetailModal
+        drama={selectedDetailDrama}
+        isFav={selectedDetailDrama ? isFavorite(selectedDetailDrama.id) : false}
+        onClose={() => setSelectedDetailDrama(null)}
+        onToggleFav={toggleFav}
+        isWatched={selectedDetailDrama ? true : false}
+      />
     </div>
   );
 }
