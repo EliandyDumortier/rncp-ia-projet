@@ -200,24 +200,45 @@ function extractGenres(api: ApiDrama): string[] {
       .filter((g): g is string => typeof g === "string" && g.trim().length > 0);
   } else if (typeof a.genres === "string" && a.genres.trim()) {
     // Try genres as JSON string (common in etape1 API)
+    let genreString = a.genres.trim();
+
     try {
-      const parsed = JSON.parse(a.genres);
+      // First, try to parse as JSON
+      const parsed = JSON.parse(genreString);
       if (Array.isArray(parsed)) {
         genres = parsed
-          .map((g) => typeof g === "string" ? g : (g?.nom ?? ""))
-          .filter((g): g is string => g.trim().length > 0);
+          .map((g) => {
+            // Clean up each genre: remove quotes, brackets, commas
+            let clean = typeof g === "string" ? g : (g?.nom ?? "");
+            return clean
+              .trim()
+              .replace(/^[\[\"]/, "")  // Remove leading [ or "
+              .replace(/[\]\"]$/, "")  // Remove trailing ] or "
+              .trim();
+          })
+          .filter((g): g is string => g.length > 0);
       }
     } catch {
-      // If JSON parsing fails, split by comma
-      genres = a.genres
+      // If JSON parsing fails, split by comma and clean
+      genres = genreString
         .split(",")
-        .map((g) => g.trim())
+        .map((g) =>
+          g
+            .trim()
+            .replace(/^[\[\"]/, "")  // Remove leading [ or "
+            .replace(/[\]\"]$/, "")  // Remove trailing ] or "
+            .trim()
+        )
         .filter((g) => g.length > 0);
     }
   }
 
-  // Normalize all genres to English
-  return genres.map(g => normalizeGenreToEnglish(g));
+  // Normalize all genres to English and remove duplicates
+  const normalized = genres
+    .map(g => normalizeGenreToEnglish(g))
+    .filter((g, i, arr) => g && arr.indexOf(g) === i); // Remove duplicates
+
+  return normalized;
 }
 
 export function apiDramaToDrama(api: ApiDrama): Drama {
