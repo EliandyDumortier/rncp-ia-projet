@@ -133,6 +133,29 @@ class Kdrama(Base):
     )
 
 
+class DramaSentiment(Base):
+    """Modèle ORM pour la table drama_sentiments."""
+    __tablename__ = "drama_sentiments"
+    __table_args__ = {"schema": "kdrama"}
+
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    drama_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.kdramas.id"), nullable=False)
+    ending_type: Mapped[str] = Column(String(20), default="unknown")  # happy, sad, bittersweet, unknown
+    ending_confidence: Mapped[float] = Column(Float, default=0.5)  # 0-1 confidence score
+    sentiment_score: Mapped[float] = Column(Float, default=0.5)  # -1 to 1 sentiment
+    sentiment_summary: Mapped[Optional[str]] = Column(Text)
+    is_ongoing: Mapped[bool] = Column(Boolean, default=False)
+    is_completed: Mapped[bool] = Column(Boolean, default=True)
+    total_episodes: Mapped[Optional[int]] = Column(Integer)
+    scraped_date: Mapped[Optional[datetime]] = Column(DateTime)
+    last_updated: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    source_urls: Mapped[Optional[str]] = Column(Text)  # JSON array of URLs
+    data_quality_score: Mapped[Optional[float]] = Column(Float)
+    top_comments: Mapped[Optional[str]] = Column(Text)  # JSON array
+    notable_triggers: Mapped[Optional[str]] = Column(Text)  # JSON array
+    viewer_consensus: Mapped[Optional[str]] = Column(Text)
+
+
 class Acteur(Base):
     """Modèle ORM pour la table acteurs."""
     __tablename__ = "acteurs"
@@ -446,6 +469,29 @@ class NoteResponse(BaseModel):
     note: int
     commentaire: Optional[str] = None
     date_note: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DramaSentimentResponse(BaseModel):
+    """Modèle de réponse pour le sentiment d'un drama."""
+    id: int
+    drama_id: int
+    ending_type: str  # happy, sad, bittersweet, unknown
+    ending_confidence: float
+    sentiment_score: float
+    sentiment_summary: Optional[str] = None
+    is_ongoing: bool
+    is_completed: bool
+    total_episodes: Optional[int] = None
+    scraped_date: Optional[datetime] = None
+    last_updated: datetime
+    source_urls: Optional[str] = None
+    data_quality_score: Optional[float] = None
+    top_comments: Optional[str] = None
+    notable_triggers: Optional[str] = None
+    viewer_consensus: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -1170,6 +1216,103 @@ def create_note(
     db.refresh(nouvelle_note)
     logger.info("Note créée: kdrama=%d, user=%d, note=%d", kdrama_id, current_user.id, note_data.note)
     return nouvelle_note
+
+
+# ---------------------------------------------------------------------------
+# Sentiment Endpoints (Drama Ending Sentiment Analysis)
+# ---------------------------------------------------------------------------
+@app.get(
+    "/api/v1/kdramas/{kdrama_id}/sentiment",
+    response_model=DramaSentimentResponse,
+    summary="Get drama sentiment/ending classification",
+    description="Returns sentiment data and ending type for a specific drama.",
+)
+def get_drama_sentiment(kdrama_id: int, db: Session = Depends(get_db)):
+    """Retourne le sentiment et le type d'ending pour un K-Drama.
+
+    Args:
+        kdrama_id: Identifiant unique du K-Drama.
+        db: Session de base de données.
+
+    Returns:
+        Sentiment data with ending_type (happy/sad/bittersweet/unknown).
+
+    Raises:
+        HTTPException: 404 if drama or sentiment not found.
+    """
+    # Check drama exists
+    kdrama = db.query(Kdrama).filter(Kdrama.id == kdrama_id).first()
+    if not kdrama:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    # Try to get sentiment
+    try:
+        sentiment = db.query(DramaSentiment).filter(
+            DramaSentiment.drama_id == kdrama_id
+        ).first()
+
+        if not sentiment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No sentiment data available for drama {kdrama_id}",
+            )
+
+        return sentiment
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error fetching sentiment for kdrama %d: %s", kdrama_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch sentiment data",
+        )
+
+
+@app.get(
+    "/api/v1/sentiments",
+    summary="List all drama sentiments",
+    description="Returns sentiment data for all dramas with optional filtering by ending_type.",
+)
+def list_sentiments(
+    ending_type: Optional[str] = Query(None, description="Filter by ending type: happy, sad, bittersweet, unknown"),
+    skip: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of items to return"),
+    db: Session = Depends(get_db),
+):
+    """Liste les sentiments des dramas avec filtrage optionnel.
+
+    Args:
+        ending_type: Filter by ending type (happy/sad/bittersweet/unknown).
+        skip: Nombre de résultats à ignorer (pagination).
+        limit: Nombre de résultats à retourner (max 500).
+        db: Session de base de données.
+
+    Returns:
+        Liste des sentiments avec métadonnées.
+    """
+    query = db.query(DramaSentiment)
+
+    if ending_type:
+        valid_endings = ["happy", "sad", "bittersweet", "unknown"]
+        if ending_type.lower() not in valid_endings:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid ending_type. Must be one of: {', '.join(valid_endings)}",
+            )
+        query = query.filter(DramaSentiment.ending_type == ending_type.lower())
+
+    total = query.count()
+    sentiments = query.offset(skip).limit(min(limit, 500)).all()
+
+    return {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "data": sentiments,
+    }
 
 
 # ---------------------------------------------------------------------------
