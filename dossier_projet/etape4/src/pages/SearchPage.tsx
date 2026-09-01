@@ -74,11 +74,19 @@ export function SearchPage({ nav }: SearchPageProps) {
   const filtered = genreFilter === 'All genres'
     ? results
     : results.filter((d) => {
-        // Debug: log what we're comparing
+        const matches = d.genres.some(g => {
+          const cleanG = g.toLowerCase().trim();
+          const cleanFilter = genreFilter.toLowerCase().trim();
+          const doesMatch = cleanG === cleanFilter;
+          if (d.genres.length > 0) {
+            console.log(`Compare: "${cleanG}" === "${cleanFilter}" → ${doesMatch}`);
+          }
+          return doesMatch;
+        });
         if (d.genres.length > 0) {
-          console.log(`Drama: ${d.title}, genres:`, d.genres, 'Filter:', genreFilter);
+          console.log(`Drama: ${d.title}, genres:`, d.genres, 'Filter:', genreFilter, 'Result:', matches);
         }
-        return d.genres.some(g => g.trim() === genreFilter.trim());
+        return matches;
       });
 
   // Calculate pagination based on filtered results
