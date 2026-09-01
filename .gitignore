@@ -247,4 +247,7 @@ dossier_projet/etape4/.env.test.local
 dossier_projet/etape4/.env.production.local
 
 # Logs
-dossier_projet/etape4/logs/dossier_rapports/
+dossier_projet/etape4/logs/
+
+# Rapports (never commit to git)
+dossier_rapports/
