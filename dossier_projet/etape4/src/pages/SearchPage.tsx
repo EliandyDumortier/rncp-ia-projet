@@ -1,7 +1,7 @@
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import type { Drama, Page } from '../types';
-import { fetchDramas, fetchGenres, dramas, allGenres } from '../data';
+import { fetchDramas, dramas, allGenres } from '../data';
 import { DramaCard } from '../components/DramaCard';
 import { DramaDetailModal } from '../components/DramaDetailModal';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
@@ -15,13 +15,35 @@ interface SearchPageProps {
 
 const ITEMS_PER_PAGE = 24;
 
+// Complete list of genres available in the database
+const AVAILABLE_GENRES = [
+  "Action & Adventure",
+  "Action",
+  "Comedy",
+  "Crime",
+  "Drama",
+  "Family",
+  "Fantasy",
+  "Friendship",
+  "Historical",
+  "Life",
+  "Medical",
+  "Mystery",
+  "Romance",
+  "Sci-Fi & Fantasy",
+  "Soap",
+  "Thriller",
+  "War & Politics",
+  "Youth",
+].sort();
+
 export function SearchPage({ nav }: SearchPageProps) {
   const { user, flash } = useAuth();
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites(user?.user_id ?? null);
   const { isWatched, addWatchedDrama } = useWatchedDramas(user?.user_id ?? null);
   const [query, setQuery] = useState('');
   const [genreFilter, setGenreFilter] = useState('All genres');
-  const [genres, setGenres] = useState<string[]>(allGenres);
+  const [genres, setGenres] = useState<string[]>(AVAILABLE_GENRES);
   const [results, setResults] = useState<Drama[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -31,7 +53,7 @@ export function SearchPage({ nav }: SearchPageProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    fetchGenres().then(setGenres);
+    setGenres(AVAILABLE_GENRES);
   }, []);
 
   useEffect(() => {
