@@ -121,18 +121,31 @@ export const apiClient = {
 
     const data = await response.json();
     return {
-      recommendations: (data.recommendations || []).map((r: any) => ({
-        id: r.id || r.kdrama_id || 0,
-        title: r.title || r.titre || 'Unknown',
-        genres: r.genres || [],
-        rating: r.note_moyenne || r.rating || 0,
-        year: r.year || new Date().getFullYear(),
-        episodes: r.nb_episodes || r.episodes || 0,
-        synopsis: r.synopsis || '',
-        poster: r.poster || r.poster_url || 'https://via.placeholder.com/400x600?text=No+Poster',
-        predicted_rating: r.predicted_rating,
-        score: r.score,
-      })),
+      recommendations: (data.recommendations || []).map((r: any) => {
+        // Handle various field name combinations from etape3 API
+        const id = r.id || r.kdrama_id || r.drama_id || 0;
+        const title = r.title || r.titre || 'Unknown';
+        const genres = r.genres || [];
+        const rating = r.note_moyenne || r.rating || 0;
+        const year = r.year || (r.date_diffusion ? parseInt(r.date_diffusion.split('-')[0]) : new Date().getFullYear());
+        const episodes = r.nb_episodes || r.episodes || 0;
+        const synopsis = r.synopsis || '';
+        const poster = r.poster || r.poster_url || r.affiche || 'https://via.placeholder.com/400x600?text=No+Poster';
+        const score = r.score || 0;
+
+        return {
+          id,
+          title,
+          genres,
+          rating,
+          year,
+          episodes,
+          synopsis,
+          poster,
+          predicted_rating: score,
+          score,
+        };
+      }),
       mode: data.mode || 'user',
     };
   },

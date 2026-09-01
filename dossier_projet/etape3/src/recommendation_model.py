@@ -50,15 +50,33 @@ class RecommendationResult:
     score: float
     genres: list[str] = field(default_factory=list)
     reason: str = ""
+    synopsis: str = ""
+    rating: float = 0.0
+    year: int = 0
+    episodes: int = 0
+    poster: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Convertit le résultat en dictionnaire sérialisable JSON."""
         return {
+            "id": self.drama_id,
+            "kdrama_id": self.drama_id,
             "drama_id": self.drama_id,
             "title": self.title,
+            "titre": self.title,
             "score": round(float(self.score), 4),
             "genres": self.genres,
             "reason": self.reason,
+            "synopsis": self.synopsis,
+            "rating": round(float(self.rating), 1),
+            "note_moyenne": round(float(self.rating), 1),
+            "year": self.year,
+            "date_diffusion": f"{self.year}-01-01" if self.year > 0 else None,
+            "episodes": self.episodes,
+            "nb_episodes": self.episodes,
+            "poster": self.poster,
+            "poster_url": self.poster,
+            "predicted_rating": round(float(self.score), 1),
         }
 
 
@@ -504,9 +522,13 @@ class HybridRecommender:
                         drama_id=int(did),
                         title=drama_info["title"],
                         score=float(score),
-                        genres=drama_info["genres"],
-                        reason="Recommended based on your history "
-                        "and similar users.",
+                        genres=drama_info.get("genres", []),
+                        synopsis=drama_info.get("synopsis", ""),
+                        rating=drama_info.get("rating", 0.0),
+                        year=drama_info.get("year", 0),
+                        episodes=drama_info.get("episodes", 0),
+                        poster=drama_info.get("poster", ""),
+                        reason="Recommended based on your history and similar users.",
                     )
                 )
 
@@ -582,9 +604,13 @@ class HybridRecommender:
                         drama_id=int(did),
                         title=drama_info["title"],
                         score=float(score),
-                        genres=drama_info["genres"],
-                        reason="Similar to the selected drama "
-                        "(content and user preferences).",
+                        genres=drama_info.get("genres", []),
+                        synopsis=drama_info.get("synopsis", ""),
+                        rating=drama_info.get("rating", 0.0),
+                        year=drama_info.get("year", 0),
+                        episodes=drama_info.get("episodes", 0),
+                        poster=drama_info.get("poster", ""),
+                        reason="Similar to the selected drama (content and user preferences).",
                     )
                 )
 
@@ -620,7 +646,12 @@ class HybridRecommender:
                         drama_id=int(did),
                         title=drama_info["title"],
                         score=float(score),
-                        genres=drama_info["genres"],
+                        genres=drama_info.get("genres", []),
+                        synopsis=drama_info.get("synopsis", ""),
+                        rating=drama_info.get("rating", 0.0),
+                        year=drama_info.get("year", 0),
+                        episodes=drama_info.get("episodes", 0),
+                        poster=drama_info.get("poster", ""),
                         reason="Popular drama (high average rating).",
                     )
                 )
@@ -789,7 +820,7 @@ class HybridRecommender:
             raise RuntimeError("Le modèle n'est pas entraîné. Appelez train() d'abord.")
 
     def _get_drama_info(self, drama_id: int) -> dict[str, Any] | None:
-        """Récupère les métadonnées d'un drama par son ID."""
+        """Récupère les métadonnées complètes d'un drama par son ID."""
         if self.dramas_df is None:
             return None
         row = self.dramas_df[self.dramas_df["drama_id"] == drama_id]
@@ -880,9 +911,44 @@ class HybridRecommender:
                 genres.append(clean)
 
         title = _repair_text(str(row.get("title", "Unknown")))
+        synopsis = _repair_text(str(row.get("synopsis", ""))) if row.get("synopsis") else ""
+
+        # Extract year from date_diffusion
+        year = 0
+        date_diffusion = row.get("date_diffusion")
+        if date_diffusion:
+            try:
+                if isinstance(date_diffusion, str):
+                    year = int(date_diffusion.split("-")[0])
+                elif hasattr(date_diffusion, "year"):
+                    year = date_diffusion.year
+            except (ValueError, AttributeError, IndexError):
+                pass
+
+        rating = float(row.get("note_moyenne", 0)) if row.get("note_moyenne") else 0.0
+        episodes = int(row.get("nb_episodes", 0)) if row.get("nb_episodes") else 0
+
+        # Try to get poster URL from various possible field names
+        poster = ""
+        for field in ["poster", "poster_url", "image_url", "affiche"]:
+            if field in row and row[field]:
+                poster = str(row[field]).strip()
+                if poster and poster.lower() != "none" and poster != "nan":
+                    break
+
+        # If no poster found, use placeholder
+        if not poster or poster.lower() == "none":
+            poster = "https://via.placeholder.com/400x600?text=No+Poster"
+
         return {
+            "drama_id": drama_id,
             "title": title,
             "genres": genres,
+            "synopsis": synopsis,
+            "rating": rating,
+            "year": year,
+            "episodes": episodes,
+            "poster": poster,
         }
 
     def get_model_info(self) -> dict[str, Any]:
