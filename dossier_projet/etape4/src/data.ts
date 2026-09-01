@@ -183,30 +183,67 @@ function extractGenres(api: ApiDrama): string[] {
   const a = api as ApiDrama & {
     genre_names?: string[] | null;
     genres?: Array<{ nom?: string | null } | string> | null;
+    annee_diffusion?: number | null;
   };
 
+  // Try genre_names first
   if (Array.isArray(a.genre_names)) {
     return a.genre_names.filter(
       (g): g is string => typeof g === "string" && g.trim().length > 0,
     );
   }
 
+  // Try genres as array of objects or strings
   if (Array.isArray(a.genres)) {
     return a.genres
       .map((g) => (typeof g === "string" ? g : (g?.nom ?? "")))
       .filter((g): g is string => typeof g === "string" && g.trim().length > 0);
   }
 
+  // Try genres as JSON string (common in etape1 API)
+  if (typeof a.genres === "string" && a.genres.trim()) {
+    try {
+      const parsed = JSON.parse(a.genres);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((g) => typeof g === "string" ? g : (g?.nom ?? ""))
+          .filter((g): g is string => g.trim().length > 0);
+      }
+    } catch {
+      // If JSON parsing fails, split by comma
+      return a.genres
+        .split(",")
+        .map((g) => g.trim())
+        .filter((g) => g.length > 0);
+    }
+  }
+
   return [];
 }
 
 export function apiDramaToDrama(api: ApiDrama): Drama {
+  const a = api as ApiDrama & {
+    annee_diffusion?: number | null;
+  };
+
+  // Year extraction: try annee_diffusion first (etape1 API), then parse date_diffusion
+  let year = 0;
+  if (a.annee_diffusion) {
+    year = a.annee_diffusion;
+  } else if (api.date_diffusion) {
+    try {
+      year = new Date(api.date_diffusion).getFullYear();
+    } catch {
+      year = 0;
+    }
+  }
+
   return {
     id: api.id,
     title: api.titre,
     genres: extractGenres(api),
     rating: api.note_moyenne ?? 0,
-    year: api.date_diffusion ? new Date(api.date_diffusion).getFullYear() : 0,
+    year,
     episodes: api.nb_episodes ?? 0,
     synopsis: api.synopsis ?? "",
     poster: (api as any).poster && ((api as any).poster as string).trim() ? (api as any).poster : PLACEHOLDER_POSTER,
