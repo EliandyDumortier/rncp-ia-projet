@@ -180,13 +180,28 @@ const PLACEHOLDER_POSTER =
   "https://images.pexels.com/photos/2873486/pexels-photo-2873486.jpeg?auto=compress&cs=tinysrgb&w=400&h=600&fit=crop";
 
 function cleanGenreString(str: string): string {
-  return str
-    .trim()
-    .replace(/^[\[\{"]/, "")     // Remove leading [ { "
-    .replace(/[\]\}"]$/, "")     // Remove trailing ] } "
-    .replace(/^["']/, "")         // Remove leading quotes
-    .replace(/["']$/, "")         // Remove trailing quotes
+  if (!str) return "";
+
+  // Aggressively remove all quotes and brackets from both ends
+  let cleaned = str.trim();
+
+  // Keep removing quotes and brackets until we can't anymore
+  let prevLength;
+  do {
+    prevLength = cleaned.length;
+    cleaned = cleaned
+      .replace(/^["'\[\{]+/, "")      // Remove leading quotes/brackets
+      .replace(/["'\]\}]+$/, "")      // Remove trailing quotes/brackets
+      .trim();
+  } while (cleaned.length < prevLength && cleaned.length > 0);
+
+  // Also remove any escaped quotes
+  cleaned = cleaned
+    .replace(/\\"/g, "")              // Remove escaped quotes
+    .replace(/\\'/g, "")              // Remove escaped single quotes
     .trim();
+
+  return cleaned;
 }
 
 function extractGenres(api: ApiDrama): string[] {
@@ -234,7 +249,6 @@ function extractGenres(api: ApiDrama): string[] {
 
   // Normalize all genres to English and remove duplicates
   const normalized = genres
-    .map(g => normalizeGenreToEnglish(g))
     .filter((g, i, arr) => g && arr.indexOf(g) === i); // Remove duplicates
 
   return normalized;
@@ -341,8 +355,9 @@ export async function fetchGenres(): Promise<string[]> {
   try {
     const genres: GenreResponse[] = await dataApi.listGenres();
     return genres
-      .map((g) => normalizeGenreToEnglish(g.nom))
+      .map((g) => cleanGenreString(g.nom))
       .filter((g) => g && g.trim().length > 0)
+      .filter((g, i, arr) => arr.indexOf(g) === i)  // Remove duplicates
       .sort();
   } catch {
     return allGenres;

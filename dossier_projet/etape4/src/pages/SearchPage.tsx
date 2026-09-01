@@ -78,18 +78,7 @@ export function SearchPage({ nav }: SearchPageProps) {
         if (d.genres.length > 0) {
           console.log(`Drama: ${d.title}, genres:`, d.genres, 'Filter:', genreFilter);
         }
-        return d.genres.some(g => {
-          // Clean the genre string further to handle any remaining brackets/quotes
-          const cleanGenre = g
-            .toLowerCase()
-            .replace(/[\[\]"']/g, '')
-            .trim();
-          const cleanFilter = genreFilter
-            .toLowerCase()
-            .replace(/[\[\]"']/g, '')
-            .trim();
-          return cleanGenre === cleanFilter;
-        });
+        return d.genres.some(g => g.trim() === genreFilter.trim());
       });
 
   // Calculate pagination based on filtered results
