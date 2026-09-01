@@ -113,14 +113,6 @@ export function SearchPage({ nav }: SearchPageProps) {
     fetchPage();
   }, [currentPage, query]);
 
-  const filtered = genreFilter === 'All genres'
-    ? results
-    : results.filter((d) => d.genres.includes(genreFilter));
-
-  const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
-  const hasNextPage = currentPage < totalPages;
-  const hasPrevPage = currentPage > 1;
-
   const toggleFav = (drama: Drama) => {
     if (!user) {
       flash('Please sign in to manage your favorites.', 'info');
