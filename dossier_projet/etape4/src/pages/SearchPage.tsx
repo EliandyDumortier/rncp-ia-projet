@@ -1,7 +1,7 @@
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import type { Drama, Page } from '../types';
-import { fetchDramas, dramas, allGenres } from '../data';
+import { fetchDramas, fetchGenres, dramas, allGenres } from '../data';
 import { DramaCard } from '../components/DramaCard';
 import { DramaDetailModal } from '../components/DramaDetailModal';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
@@ -15,35 +15,13 @@ interface SearchPageProps {
 
 const ITEMS_PER_PAGE = 24;
 
-// Complete list of genres available in the database
-const AVAILABLE_GENRES = [
-  "Action & Adventure",
-  "Action",
-  "Comedy",
-  "Crime",
-  "Drama",
-  "Family",
-  "Fantasy",
-  "Friendship",
-  "Historical",
-  "Life",
-  "Medical",
-  "Mystery",
-  "Romance",
-  "Sci-Fi & Fantasy",
-  "Soap",
-  "Thriller",
-  "War & Politics",
-  "Youth",
-].sort();
-
 export function SearchPage({ nav }: SearchPageProps) {
   const { user, flash } = useAuth();
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites(user?.user_id ?? null);
   const { isWatched, addWatchedDrama } = useWatchedDramas(user?.user_id ?? null);
   const [query, setQuery] = useState('');
   const [genreFilter, setGenreFilter] = useState('All genres');
-  const [genres, setGenres] = useState<string[]>(AVAILABLE_GENRES);
+  const [genres, setGenres] = useState<string[]>(allGenres);
   const [results, setResults] = useState<Drama[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -52,9 +30,59 @@ export function SearchPage({ nav }: SearchPageProps) {
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Fetch genres from API on mount
   useEffect(() => {
-    setGenres(AVAILABLE_GENRES);
+    fetchGenres().then(setGenres);
   }, []);
+
+  // Handle search query changes
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setCurrentPage(1); // Reset to page 1 when search changes
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true);
+      const result = await fetchDramas(1, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc');
+      setResults(result.items);
+      setTotal(result.total);
+      setFallback(result.fallback);
+      setLoading(false);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query]);
+
+  // Handle genre filter changes - reset to page 1
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [genreFilter]);
+
+  // Fetch new page when currentPage changes
+  useEffect(() => {
+    if (currentPage === 1) return; // Already loaded on search
+    setLoading(true);
+    const fetchPage = async () => {
+      const result = await fetchDramas(currentPage, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc');
+      setResults(result.items);
+      setTotal(result.total);
+      setLoading(false);
+    };
+    fetchPage();
+  }, [currentPage, query]);
+
+  // Filter results by genre
+  const filtered = genreFilter === 'All genres'
+    ? results
+    : results.filter((d) => d.genres.some(g => g.toLowerCase() === genreFilter.toLowerCase()));
+
+  // Calculate pagination based on filtered results
+  const totalFiltered = genreFilter === 'All genres'
+    ? total
+    : results.filter((d) => d.genres.some(g => g.toLowerCase() === genreFilter.toLowerCase())).length;
+
+  const totalPages = Math.ceil(totalFiltered / ITEMS_PER_PAGE);
+  const hasNextPage = currentPage < totalPages;
+  const hasPrevPage = currentPage > 1;
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -193,7 +221,7 @@ export function SearchPage({ nav }: SearchPageProps) {
             <div className="text-sm text-gray-600">
               Page <span className="font-semibold">{currentPage}</span> of <span className="font-semibold">{totalPages || 1}</span>
               <span className="text-gray-400 mx-2">•</span>
-              <span className="font-semibold">{total}</span> dramas total
+              <span className="font-semibold">{totalFiltered}</span> dramas {genreFilter !== 'All genres' ? `in ${genreFilter}` : 'total'}
             </div>
 
             <button
