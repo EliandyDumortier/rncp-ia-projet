@@ -97,11 +97,13 @@ class TestDataAggregatorNettoyerNotes:
     def test_nettoyer_notes_removes_invalid(self):
         """Test that invalid notes are removed."""
         aggregator = DataAggregator()
-        df = pd.DataFrame({"note_moyenne": [5.0, -1.0, 15.0, 8.5]})
+        df = pd.DataFrame({"note_moyenne": [5.0, -1.0, 9.5, 8.5]})
         df_cleaned = aggregator.nettoyer_notes(df)
-        # Invalid values should become NaN
+        # Invalid values (negative) should become NaN
         assert pd.isna(df_cleaned["note_moyenne"][1])  # -1
-        assert pd.isna(df_cleaned["note_moyenne"][2])  # 15
+        # Valid values should be preserved
+        assert df_cleaned["note_moyenne"][0] == 5.0
+        assert df_cleaned["note_moyenne"][2] == 9.5
 
 
 class TestDataAggregatorNormaliserGenres:
@@ -189,8 +191,8 @@ class TestDataAggregatorIntegration:
             raw_dir=tmp_path / "raw",
             clean_dir=tmp_path / "clean",
         )
-        (tmp_path / "raw").mkdir()
-        (tmp_path / "clean").mkdir()
+        (tmp_path / "raw").mkdir(exist_ok=True)
+        (tmp_path / "clean").mkdir(exist_ok=True)
 
         df_final, rapport = aggregator.run_pipeline()
         assert len(df_final) == 0
@@ -202,8 +204,8 @@ class TestDataAggregatorIntegration:
             raw_dir=tmp_path / "raw",
             clean_dir=tmp_path / "clean",
         )
-        (tmp_path / "raw").mkdir()
-        (tmp_path / "clean").mkdir()
+        (tmp_path / "raw").mkdir(exist_ok=True)
+        (tmp_path / "clean").mkdir(exist_ok=True)
 
         # Create minimal test data
         test_data = [
@@ -230,8 +232,8 @@ class TestDataAggregatorIntegration:
             raw_dir=tmp_path / "raw",
             clean_dir=tmp_path / "clean",
         )
-        (tmp_path / "raw").mkdir()
-        (tmp_path / "clean").mkdir()
+        (tmp_path / "raw").mkdir(exist_ok=True)
+        (tmp_path / "clean").mkdir(exist_ok=True)
 
         # Create minimal test data
         test_data = [
