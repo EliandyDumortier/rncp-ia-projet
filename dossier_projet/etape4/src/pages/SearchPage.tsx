@@ -35,13 +35,13 @@ export function SearchPage({ nav }: SearchPageProps) {
     fetchGenres().then(setGenres);
   }, []);
 
-  // Handle search query changes
+  // Handle search query and genre changes together
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    setCurrentPage(1); // Reset to page 1 when search changes
+    setCurrentPage(1);
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
-      const result = await fetchDramas(1, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc');
+      const result = await fetchDramas(1, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc', genreFilter);
       setResults(result.items);
       setTotal(result.total);
       setFallback(result.fallback);
@@ -50,7 +50,7 @@ export function SearchPage({ nav }: SearchPageProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+  }, [query, genreFilter]);
 
   // Handle genre filter changes - reset to page 1
   useEffect(() => {
@@ -59,73 +59,23 @@ export function SearchPage({ nav }: SearchPageProps) {
 
   // Fetch new page when currentPage changes
   useEffect(() => {
-    if (currentPage === 1) return; // Already loaded on search
+    if (currentPage === 1) return;
     setLoading(true);
     const fetchPage = async () => {
-      const result = await fetchDramas(currentPage, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc');
+      const result = await fetchDramas(currentPage, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc', genreFilter);
       setResults(result.items);
       setTotal(result.total);
       setLoading(false);
     };
     fetchPage();
-  }, [currentPage, query]);
+  }, [currentPage, query, genreFilter]);
 
-  // Filter results by genre - with debug logging
-  const filtered = genreFilter === 'All genres'
-    ? results
-    : results.filter((d) => {
-        const matches = d.genres.some(g => {
-          const cleanG = g.toLowerCase().trim();
-          const cleanFilter = genreFilter.toLowerCase().trim();
-          const doesMatch = cleanG === cleanFilter;
-          if (d.genres.length > 0) {
-            console.log(`Compare: "${cleanG}" === "${cleanFilter}" → ${doesMatch}`);
-          }
-          return doesMatch;
-        });
-        if (d.genres.length > 0) {
-          console.log(`Drama: ${d.title}, genres:`, d.genres, 'Filter:', genreFilter, 'Result:', matches);
-        }
-        return matches;
-      });
-
-  // Calculate pagination based on filtered results
-  const totalFiltered = genreFilter === 'All genres'
-    ? total
-    : results.filter((d) => d.genres.some(g => g.toLowerCase() === genreFilter.toLowerCase())).length;
-
+  // No client-side filtering needed - server-side handles genre filtering
+  const filtered = results;
+  const totalFiltered = total;
   const totalPages = Math.ceil(totalFiltered / ITEMS_PER_PAGE);
   const hasNextPage = currentPage < totalPages;
   const hasPrevPage = currentPage > 1;
-
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    setCurrentPage(1); // Reset to page 1 when search/filter changes
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true);
-      const result = await fetchDramas(1, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc');
-      setResults(result.items);
-      setTotal(result.total);
-      setFallback(result.fallback);
-      setLoading(false);
-    }, 300);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [query]);
-
-  // Fetch new page when currentPage changes
-  useEffect(() => {
-    if (currentPage === 1) return; // Already loaded on search
-    setLoading(true);
-    const fetchPage = async () => {
-      const result = await fetchDramas(currentPage, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc');
-      setResults(result.items);
-      setTotal(result.total);
-      setLoading(false);
-    };
-    fetchPage();
-  }, [currentPage, query]);
 
   const toggleFav = (drama: Drama) => {
     if (!user) {

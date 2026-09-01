@@ -191,7 +191,8 @@ export const dataApi = {
     pageSize: number = 20,
     search?: string,
     sortBy: string = 'note_moyenne',
-    sortOrder: 'asc' | 'desc' = 'desc'
+    sortOrder: 'asc' | 'desc' = 'desc',
+    genre?: string
   ): Promise<PaginatedDramas> {
     const params = new URLSearchParams({
       page: String(page),
@@ -200,6 +201,7 @@ export const dataApi = {
       sort_order: sortOrder,
     });
     if (search) params.set('search', search);
+    if (genre && genre !== 'All genres') params.set('genre', genre);
 
     const response = await fetchWithTimeout(
       `${API_DATA_URL}/api/v1/kdramas?${params.toString()}`

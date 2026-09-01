@@ -826,11 +826,12 @@ def list_kdramas(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     search: Optional[str] = Query(None, description="Search by title"),
+    genre: Optional[str] = Query(None, description="Filter by genre"),
     sort_by: str = Query("note_moyenne", description="Sort field"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
     db: Session = Depends(get_db),
 ):
-    print(f"\n=== list_kdramas START: page={page}, page_size={page_size} ===")
+    print(f"\n=== list_kdramas START: page={page}, page_size={page_size}, genre={genre} ===")
     try:
         print("1. Creating query")
         query = db.query(Kdrama)
@@ -843,22 +844,28 @@ def list_kdramas(
                 | (Kdrama.titre_original.ilike(f"%{search}%"))
             )
 
-        print(f"4. Applying sort: {sort_by} {sort_order}")
+        if genre:
+            print(f"4. Applying genre filter: {genre}")
+            query = query.filter(
+                Kdrama.genres.contains(genre)
+            )
+
+        print(f"5. Applying sort: {sort_by} {sort_order}")
         sort_column = getattr(Kdrama, sort_by, Kdrama.note_moyenne)
         if sort_order == "desc":
             sort_column = sort_column.desc()
         query = query.order_by(sort_column)
 
-        print("5. Counting total")
+        print("6. Counting total")
         total = query.count()
-        print(f"6. Total: {total}")
+        print(f"7. Total: {total}")
 
         offset = (page - 1) * page_size
-        print(f"7. Fetching offset={offset}, limit={page_size}")
+        print(f"8. Fetching offset={offset}, limit={page_size}")
         kdramas = query.offset(offset).limit(page_size).all()
-        print(f"8. Fetched {len(kdramas)} rows")
+        print(f"9. Fetched {len(kdramas)} rows")
 
-        print("9. Building items list")
+        print("10. Building items list")
         items = []
         for i, k in enumerate(kdramas):
             print(f"  - Item {i}: id={k.id}, titre={k.titre[:30] if k.titre else 'None'}")
@@ -873,7 +880,7 @@ def list_kdramas(
                 "synopsis": k.synopsis or "",
             })
 
-        print(f"10. Built {len(items)} items")
+        print(f"11. Built {len(items)} items")
         result = {
             "items": items,
             "total": total,
@@ -881,7 +888,7 @@ def list_kdramas(
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size,
         }
-        print(f"11. Returning result\n=== list_kdramas SUCCESS ===\n")
+        print(f"12. Returning result\n=== list_kdramas SUCCESS ===\n")
         return result
 
     except Exception as e:
