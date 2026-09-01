@@ -290,7 +290,7 @@ export async function fetchDramas(
   search?: string,
   sortBy: string = "note_moyenne",
   sortOrder: "asc" | "desc" = "desc",
-  genre?: string,
+  genre?: string | string[],
 ): Promise<{
   items: Drama[];
   total: number;
@@ -340,6 +340,14 @@ export async function fetchDramas(
       d.title.toLowerCase().includes(q) ||
       d.synopsis.toLowerCase().includes(q) ||
       d.genres.some((g) => g.toLowerCase().includes(q))
+    );
+  }
+  const genreList = (Array.isArray(genre) ? genre : genre ? [genre] : []).filter(
+    (g) => g && g !== 'All genres'
+  );
+  if (genreList.length > 0) {
+    filtered = filtered.filter((d) =>
+      d.genres.some((dg) => genreList.some((g) => dg.toLowerCase().includes(g.toLowerCase())))
     );
   }
   filtered = filtered.sort((a, b) =>

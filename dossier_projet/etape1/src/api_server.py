@@ -54,6 +54,7 @@ from sqlalchemy import (
     create_engine,
     select,
     func,
+    or_,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -826,7 +827,7 @@ def list_kdramas(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     search: Optional[str] = Query(None, description="Search by title"),
-    genre: Optional[str] = Query(None, description="Filter by genre"),
+    genre: Optional[str] = Query(None, description="Filter by genre(s), comma-separated for multiple"),
     sort_by: str = Query("note_moyenne", description="Sort field"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
     db: Session = Depends(get_db),
@@ -845,13 +846,15 @@ def list_kdramas(
             )
 
         if genre:
-            print(f"4. Applying genre filter: {genre}")
-            # Simple approach: check if genre appears in the genres field
+            # Supports one or several comma-separated genres (OR match against any of them).
             # Genres field contains messy strings like: ["Comedy", "Drama"] or "Comedy, Drama"
-            query = query.filter(
-                Kdrama.genres.ilike(f"%{genre}%")
-            )
-            print(f"   Genre filter: genres ILIKE %{genre}%")
+            genre_list = [g.strip() for g in genre.split(",") if g.strip()]
+            print(f"4. Applying genre filter: {genre_list}")
+            if genre_list:
+                query = query.filter(
+                    or_(*[Kdrama.genres.ilike(f"%{g}%") for g in genre_list])
+                )
+            print(f"   Genre filter: genres ILIKE ANY of {genre_list}")
             test_count = query.count()
             print(f"   Results after genre filter: {test_count}")
 

@@ -4,6 +4,7 @@ import type { Drama, Page } from '../types';
 import { fetchDramas, fetchGenres, dramas, allGenres } from '../data';
 import { DramaCard } from '../components/DramaCard';
 import { DramaDetailModal } from '../components/DramaDetailModal';
+import { GenreMultiSelect } from '../components/GenreMultiSelect';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAuth } from '../auth';
 import { useFavorites } from '../useFavorites';
@@ -20,8 +21,8 @@ export function SearchPage({ nav }: SearchPageProps) {
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites(user?.user_id ?? null);
   const { isWatched, addWatchedDrama } = useWatchedDramas(user?.user_id ?? null);
   const [query, setQuery] = useState('');
-  const [genreFilter, setGenreFilter] = useState('All genres');
   const [genres, setGenres] = useState<string[]>(allGenres);
+  const [selectedGenres, setSelectedGenres] = useState<string[]>(allGenres);
   const [results, setResults] = useState<Drama[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -32,16 +33,32 @@ export function SearchPage({ nav }: SearchPageProps) {
 
   // Fetch genres from API on mount
   useEffect(() => {
-    fetchGenres().then(setGenres);
+    fetchGenres().then((g) => {
+      setGenres(g);
+      setSelectedGenres(g); // default to "all genres selected" (no filtering)
+    });
   }, []);
+
+  // Whether every available genre is currently checked (i.e. no filtering applied)
+  const allGenresSelected = genres.length > 0 && selectedGenres.length === genres.length;
+  // The genre(s) to send to the API: undefined when everything is selected
+  const genreParam = allGenresSelected ? undefined : selectedGenres;
 
   // Handle search query and genre changes together
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     setCurrentPage(1);
     debounceRef.current = setTimeout(async () => {
+      // Nothing checked in the genre filter => nothing can match, no need to call the API
+      if (genres.length > 0 && selectedGenres.length === 0) {
+        setResults([]);
+        setTotal(0);
+        setFallback(false);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
-      const result = await fetchDramas(1, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc', genreFilter);
+      const result = await fetchDramas(1, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc', genreParam);
       setResults(result.items);
       setTotal(result.total);
       setFallback(result.fallback);
@@ -50,25 +67,25 @@ export function SearchPage({ nav }: SearchPageProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, genreFilter]);
-
-  // Handle genre filter changes - reset to page 1
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [genreFilter]);
+  }, [query, selectedGenres, genres]);
 
   // Fetch new page when currentPage changes
   useEffect(() => {
     if (currentPage === 1) return;
+    if (genres.length > 0 && selectedGenres.length === 0) {
+      setResults([]);
+      setTotal(0);
+      return;
+    }
     setLoading(true);
     const fetchPage = async () => {
-      const result = await fetchDramas(currentPage, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc', genreFilter);
+      const result = await fetchDramas(currentPage, ITEMS_PER_PAGE, query || undefined, 'note_moyenne', 'desc', genreParam);
       setResults(result.items);
       setTotal(result.total);
       setLoading(false);
     };
     fetchPage();
-  }, [currentPage, query, genreFilter]);
+  }, [currentPage, query, selectedGenres, genres]);
 
   // No client-side filtering needed - server-side handles genre filtering
   const filtered = results;
@@ -76,6 +93,15 @@ export function SearchPage({ nav }: SearchPageProps) {
   const totalPages = Math.ceil(totalFiltered / ITEMS_PER_PAGE);
   const hasNextPage = currentPage < totalPages;
   const hasPrevPage = currentPage > 1;
+
+  // Human-readable summary of the active genre filter, or null when everything is selected
+  const genreFilterLabel = allGenresSelected
+    ? null
+    : selectedGenres.length === 0
+    ? 'no genres'
+    : selectedGenres.length === 1
+    ? selectedGenres[0]
+    : `${selectedGenres.length} genres`;
 
   const toggleFav = (drama: Drama) => {
     if (!user) {
@@ -119,25 +145,19 @@ export function SearchPage({ nav }: SearchPageProps) {
             className="w-full pl-10 pr-4 py-3 border-2 border-slate-200 rounded-2xl focus:border-rose-400 outline-none text-sm"
           />
         </div>
-        <label htmlFor="genre-select" className="sr-only">Filter by genre</label>
-        <select
+        <GenreMultiSelect
           id="genre-select"
-          value={genreFilter}
-          onChange={(e) => setGenreFilter(e.target.value)}
-          className="px-4 py-3 border-2 border-slate-200 rounded-2xl focus:border-rose-400 outline-none text-sm bg-white"
-        >
-          <option value="All genres">All genres</option>
-          {genres.map((g) => (
-            <option key={g} value={g}>{g}</option>
-          ))}
-        </select>
+          genres={genres}
+          selected={selectedGenres}
+          onChange={setSelectedGenres}
+        />
       </div>
 
       <p className="text-sm text-gray-500 mb-4" aria-live="polite">
         {fallback && 'Local catalog — '}
         {loading
           ? 'Searching...'
-          : `${filtered.length} result${filtered.length > 1 ? 's' : ''}${query ? ` for "${query}"` : ''}${genreFilter !== 'All genres' ? ` in ${genreFilter}` : ''}`}
+          : `${filtered.length} result${filtered.length > 1 ? 's' : ''}${query ? ` for "${query}"` : ''}${genreFilterLabel ? ` in ${genreFilterLabel}` : ''}`}
       </p>
 
       {loading ? (
@@ -177,7 +197,7 @@ export function SearchPage({ nav }: SearchPageProps) {
             <div className="text-sm text-gray-600">
               Page <span className="font-semibold">{currentPage}</span> of <span className="font-semibold">{totalPages || 1}</span>
               <span className="text-gray-400 mx-2">•</span>
-              <span className="font-semibold">{totalFiltered}</span> dramas {genreFilter !== 'All genres' ? `in ${genreFilter}` : 'total'}
+              <span className="font-semibold">{totalFiltered}</span> dramas {genreFilterLabel ? `in ${genreFilterLabel}` : 'total'}
             </div>
 
             <button
