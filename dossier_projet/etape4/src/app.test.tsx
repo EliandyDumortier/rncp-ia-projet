@@ -129,11 +129,13 @@ describe('App — Login (US-10)', () => {
     });
   });
 
-  it('shows demo credentials hint', async () => {
+  it('toggles to registration form', async () => {
     const user = userEvent.setup();
     render(<App />);
     const navButtons = screen.getAllByText('Sign in');
     await user.click(navButtons[0]);
-    expect(screen.getByText(/user \/ user123/i)).toBeInTheDocument();
+    await user.click(screen.getByText('Sign up'));
+    expect(screen.getByText('Create Account')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
   });
 });

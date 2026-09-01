@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { WatchedDrama, Drama } from './types';
+import { dataApi, DataAPIError } from './api';
 
 const STORAGE_KEY = 'kdrama_watched';
 
@@ -24,6 +25,50 @@ function saveWatchedDramas(userId: number | null, dramas: WatchedDrama[]): void 
 
 export function useWatchedDramas(userId: number | null) {
   const [watched, setWatched] = useState<WatchedDrama[]>(() => loadWatchedDramas(userId));
+
+  // When signed in, sync from the real watch-history backend (source of
+  // truth for the recommendation model). Falls back silently to whatever is
+  // already in localStorage if the API is unreachable.
+  useEffect(() => {
+    if (userId === null) return;
+    let cancelled = false;
+    dataApi
+      .listHistorique()
+      .then((remote) => {
+        if (cancelled) return;
+        const mapped: WatchedDrama[] = remote.map((h) => ({
+          id: h.id,
+          drama_id: h.kdrama_id,
+          drama_title: '',
+          drama_poster: '',
+          rating: 0,
+          notes: '',
+          watched_at: h.date_modification,
+          watched_date: new Date(h.date_modification).toLocaleDateString(),
+        }));
+        setWatched((prev) => {
+          const localById = new Map(prev.map((w) => [w.drama_id, w]));
+          const merged = mapped.map((w) => {
+            const local = localById.get(w.drama_id);
+            return {
+              ...w,
+              drama_title: local?.drama_title ?? w.drama_title,
+              drama_poster: local?.drama_poster ?? w.drama_poster,
+              rating: local?.rating ?? w.rating,
+              notes: local?.notes ?? w.notes,
+            };
+          });
+          saveWatchedDramas(userId, merged);
+          return merged;
+        });
+      })
+      .catch(() => {
+        // Keep local cache as-is on failure (offline fallback).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   const addWatchedDrama = useCallback(
     (drama: Drama, rating: number = 0, notes: string = '') => {
@@ -59,6 +104,11 @@ export function useWatchedDramas(userId: number | null) {
         saveWatchedDramas(userId, next);
         return next;
       });
+      if (userId !== null) {
+        dataApi.upsertHistorique(drama.id, 'termine').catch((err) => {
+          if (!(err instanceof DataAPIError)) throw err;
+        });
+      }
     },
     [userId]
   );

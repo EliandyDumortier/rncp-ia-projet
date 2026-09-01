@@ -137,6 +137,57 @@ Ce traitement enregistre l'historique de visionnage des utilisateurs (quels K-Dr
 
 ---
 
+## Traitement n°4 bis — Préférences de recommandation, favoris et retours d'intérêt
+
+### Description
+
+Ce traitement permet à un utilisateur authentifié d'améliorer la qualité des recommandations qui lui sont proposées (étape 3) en indiquant, de façon **entièrement optionnelle**, des acteurs/actrices favoris, des genres favoris, une préférence de fin heureuse, une liste de favoris, et un retour explicite d'intérêt ("je veux regarder" / "pas intéressé(e)") sur la fiche d'un K-Drama.
+
+### Données traitées
+
+| Catégorie de données | Données spécifiques | Source | Base légale | Caractère |
+|---|---|---|---|---|
+| Préférences de contenu | Genres favoris (maximum 3) | Saisie utilisateur (profil) | Consentement (art. 6.1.a) | **Optionnel** |
+| Préférences de contenu | Acteurs/actrices favoris (maximum 5) | Saisie utilisateur (profil) | Consentement (art. 6.1.a) | **Optionnel** |
+| Préférence de contenu | Fin heureuse uniquement (booléen) | Saisie utilisateur (profil) | Consentement (art. 6.1.a) | **Optionnel** |
+| Favoris | Liste de K-Dramas ajoutés en favoris | Action utilisateur (fiche drama) | Consentement (art. 6.1.a) | **Optionnel** |
+| Retour d'intérêt | "Je veux regarder" / "Pas intéressé(e)" par K-Drama | Action utilisateur (fiche drama) | Consentement (art. 6.1.a) | **Optionnel** |
+| Métadonnées | Dates de création/modification | Système automatique | Intérêt légitime (art. 6.1.f) | Automatique |
+
+Ces données ne modifient pas la finalité du traitement n°1 (inscription) : elles poursuivent la **même finalité déclarée** (recommandation personnalisée) et sont collectées séparément de l'inscription, sans jamais être requises pour créer un compte ou utiliser l'application.
+
+### Mesures de sécurité
+
+- **Authentification requise** : seuls les utilisateurs connectés peuvent définir/modifier ces données (endpoints `PATCH /api/v1/auth/me/preferences`, `POST/DELETE /api/v1/favoris/{id}`, `PUT /api/v1/historique/{id}`, `PUT /api/v1/kdramas/{id}/interet`).
+- **Row Level Security** : chaque utilisateur ne voit et ne gère que ses propres préférences, favoris et retours d'intérêt (politiques RLS dédiées, voir `preferences_favoris_schema.sql`).
+- **Minimisation** : validation applicative des limites (3 genres, 5 acteurs) pour éviter une collecte disproportionnée par rapport à la finalité (art. 5.1.c).
+- **Suppression en cascade** : toutes ces données sont supprimées avec le compte (droit à l'effacement, cf. `delete_me`) et incluses dans l'export de portabilité (`GET /api/v1/auth/me/export`).
+
+### Destinataires
+
+| Destinataire | Accès | Finalité |
+|---|---|---|
+| Utilisateur lui-même | Lecture/écriture de ses propres préférences, favoris et retours d'intérêt | Personnalisation de son expérience |
+| Système de recommandation (étape 3) | Lecture | Entraînement et inférence du modèle de recommandation (signal explicite et implicite) |
+| Administrateurs | Aucun accès direct aux préférences individuelles (hors export RGPD à la demande de l'utilisateur) | — |
+
+### Durée de conservation
+
+| Donnée | Durée de conservation | Justification |
+|---|---|---|
+| Genres/acteurs favoris, préférence de fin heureuse | Durée de vie du compte | Nécessaire tant que le compte est actif pour la personnalisation |
+| Favoris | Durée de vie du compte | Nécessaire pour la fonctionnalité |
+| Retours d'intérêt ("want to watch" / "not interested") | Durée de vie du compte | Signal d'entraînement du modèle de recommandation |
+| Toutes les données ci-dessus | Supprimées à l'effacement du compte ou après 2 ans d'inactivité (aligné sur l'historique de visionnage) | Minimisation (art. 5.1.c) |
+
+### Droits des personnes concernées
+
+- **Droit d'accès / rectification** : `GET`/`PATCH /api/v1/auth/me/preferences`, gérable directement depuis la page de profil.
+- **Droit à l'effacement** (art. 17) : `DELETE /api/v1/auth/me` supprime favoris, retours d'intérêt et préférences en plus de l'historique de visionnage.
+- **Droit à la portabilité** (art. 20) : `GET /api/v1/auth/me/export` inclut désormais ces données.
+
+---
+
 ## Traitement n°4 — Journalisation des accès (traçabilité)
 
 ### Description

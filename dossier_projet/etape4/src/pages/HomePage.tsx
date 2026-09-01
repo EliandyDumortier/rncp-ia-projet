@@ -1,4 +1,4 @@
-import { TrendingUp, ArrowRight, Sparkles, Star } from 'lucide-react';
+import { TrendingUp, ArrowRight, Sparkles, Star, UserCircle2 } from 'lucide-react';
 import type { Drama, Page } from '../types';
 import { dramas, carouselSlides, fetchDramas } from '../data';
 import { DramaCard } from '../components/DramaCard';
@@ -8,6 +8,7 @@ import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAuth } from '../auth';
 import { useFavorites } from '../useFavorites';
 import { useWatchedDramas } from '../useWatchedDramas';
+import { dataApi } from '../api';
 import { useState, useEffect, useCallback } from 'react';
 
 interface HomePageProps {
@@ -23,6 +24,7 @@ export function HomePage({ nav }: HomePageProps) {
   const [loading, setLoading] = useState(true);
   const [fallback, setFallback] = useState(false);
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
+  const [profileIncomplete, setProfileIncomplete] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,6 +39,29 @@ export function HomePage({ nav }: HomePageProps) {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Small, non-intrusive nudge to complete recommendation preferences —
+  // only shown if the signed-in user hasn't set any favorite genre/actor yet.
+  useEffect(() => {
+    if (!user) {
+      setProfileIncomplete(false);
+      return;
+    }
+    let cancelled = false;
+    dataApi
+      .getMe()
+      .then((profile) => {
+        if (!cancelled) {
+          setProfileIncomplete(
+            profile.genres_preferes.length === 0 && profile.acteurs_preferes.length === 0
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setProfileIncomplete(false);
+      });
+    return () => { cancelled = true; };
+  }, [user]);
 
   const nextSlide = useCallback(() => setCarouselIndex((i) => (i + 1) % carouselSlides.length), []);
   const prevSlide = useCallback(() => setCarouselIndex((i) => (i - 1 + carouselSlides.length) % carouselSlides.length), []);
@@ -84,6 +109,20 @@ export function HomePage({ nav }: HomePageProps) {
       />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        {profileIncomplete && (
+          <div className="mt-4 mb-2 bg-rose-50 border border-rose-100 rounded-2xl px-4 py-3 flex items-center gap-3 text-sm">
+            <UserCircle2 className="w-5 h-5 text-rose-400 flex-shrink-0" aria-hidden="true" />
+            <p className="text-slate-600 flex-1">
+              Add your favorite genres and actors to get better recommendations.
+            </p>
+            <button
+              onClick={() => nav('profile')}
+              className="text-rose-500 font-semibold hover:text-rose-600 whitespace-nowrap"
+            >
+              Complete profile
+            </button>
+          </div>
+        )}
         <section aria-labelledby="trending-title" className="grid grid-cols-3 gap-4 -mt-8 relative z-10 mb-12">
           {[
             { label: 'Dramas', value: fallback ? `${dramas.length}+` : 'API', icon: <Star className="w-5 h-5 text-rose-400" /> },

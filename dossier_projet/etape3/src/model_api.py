@@ -39,6 +39,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 # Importation des modules internes
+from data_loader import empty_user_preferences, fetch_user_preferences
 from model_monitoring import get_monitor, get_alert_rules
 from recommendation_model import (
     DEFAULT_MODEL_DIR,
@@ -86,7 +87,11 @@ def _get_required_env(var_name: str) -> str:
     return value
 
 
-JWT_SECRET_KEY = _get_required_env("JWT_SECRET_KEY")
+# JWT_SECRET_KEY must be the SAME secret as etape1's JWT_SECRET so that a JWT
+# issued by the data-api (real users from kdrama.utilisateurs, sub=user id)
+# is also accepted here. Falls back to JWT_SECRET if JWT_SECRET_KEY isn't
+# explicitly set, to avoid silent auth-bridge misconfiguration.
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY") or _get_required_env("JWT_SECRET")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.environ.get("JWT_EXPIRATION_HOURS", "24"))
 
@@ -96,7 +101,12 @@ MODEL_RATE_LIMIT = os.environ.get("MODEL_RATE_LIMIT", "30/minute")
 ADMIN_PASSWORD = _get_required_env("ADMIN_PASSWORD")
 USER_PASSWORD = _get_required_env("USER_PASSWORD")
 
-# Demo users (production should use a database-backed user store)
+# Demo/dev-only users for this API's own /auth/token endpoint (used by the
+# Streamlit POC and local testing/tooling). Real end users authenticate via
+# the etape1 data-api (/api/v1/auth/login, backed by kdrama.utilisateurs)
+# and reuse that JWT here: get_current_user() below only verifies the JWT
+# signature/claims (see verify_token) and never consults DEMO_USERS, so any
+# token signed with the shared JWT secret (real users included) is accepted.
 DEMO_USERS = {
     "admin": {
         "password": ADMIN_PASSWORD,
@@ -162,6 +172,28 @@ class RecommendRequest(BaseModel):
         le=50,
         description="Number of recommendations to return (1-50)",
     )
+    mood: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Optional mood hint",
+    )
+    text: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional free-text recommendation request",
+    )
+    genres: list[str] | None = Field(
+        default=None,
+        description="Optional preferred genres",
+    )
+    actor_names: list[str] | None = Field(
+        default=None,
+        description="Optional preferred actor names",
+    )
+    happy_ending_only: bool | None = Field(
+        default=None,
+        description="Optional happy-ending filter override",
+    )
 
     @field_validator("top_k")
     @classmethod
@@ -171,20 +203,60 @@ class RecommendRequest(BaseModel):
             raise ValueError("top_k must be between 1 and 50")
         return v
 
+    @field_validator("genres", "actor_names")
+    @classmethod
+    def clean_string_lists(cls, values: list[str] | None) -> list[str] | None:
+        if values is None:
+            return None
+        cleaned = [value.strip() for value in values if isinstance(value, str) and value.strip()]
+        return cleaned or None
+
+    @field_validator("mood", "text")
+    @classmethod
+    def clean_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
     def get_mode(self) -> str:
         """Retourne le mode de recommandation."""
         if self.user_id is not None:
             return "user"
-        return "item"
+        if self.drama_id is not None:
+            return "item"
+        return "discovery"
+
+
+class RecommendationItem(BaseModel):
+    id: int
+    kdrama_id: int
+    drama_id: int
+    title: str
+    titre: str
+    score: float
+    genres: list[str]
+    reason: str
+    explanation: str
+    synopsis: str
+    rating: float
+    note_moyenne: float
+    year: int
+    date_diffusion: str | None
+    episodes: int
+    nb_episodes: int
+    poster: str
+    poster_url: str
+    predicted_rating: float
 
 
 class RecommendResponse(BaseModel):
     """Modèle de réponse pour les recommandations."""
 
     success: bool = Field(..., description="Request status")
-    mode: str = Field(..., description="Recommendation mode (user/item)")
+    mode: str = Field(..., description="Recommendation mode (user/item/discovery)")
     count: int = Field(..., description="Number of results")
-    recommendations: list[dict[str, Any]] = Field(
+    recommendations: list[RecommendationItem] = Field(
         default_factory=list,
         description="List of recommendations",
     )
@@ -419,6 +491,30 @@ def get_current_user(
 
     token = credentials.credentials
     return verify_token(token)
+
+
+def _extract_real_user_id(payload: dict[str, Any]) -> int | None:
+    raw_sub = payload.get("sub")
+    try:
+        return int(raw_sub)
+    except (TypeError, ValueError):
+        return None
+
+
+def _merge_string_preferences(
+    explicit_values: list[str] | None,
+    stored_values: list[str] | None,
+) -> list[str] | None:
+    source_values = explicit_values if explicit_values is not None else stored_values
+    if not source_values:
+        return None
+
+    merged: list[str] = []
+    for value in source_values:
+        clean = value.strip()
+        if clean and clean not in merged:
+            merged.append(clean)
+    return merged or None
 
 
 def require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
@@ -722,11 +818,55 @@ async def recommend(
     start_time = time.time()
     request_id = f"req-{int(start_time * 1000)}"
 
-    # Validation : au moins un identifiant doit être fourni
-    if req.user_id is None and req.drama_id is None:
+    authenticated_user_id = _extract_real_user_id(current_user)
+    effective_user_id = req.user_id if req.user_id is not None else authenticated_user_id
+
+    stored_preferences = (
+        fetch_user_preferences(effective_user_id)
+        if effective_user_id is not None
+        else empty_user_preferences()
+    )
+    effective_genres = _merge_string_preferences(
+        req.genres,
+        stored_preferences.get("favorite_genres"),
+    )
+    effective_actor_names = _merge_string_preferences(
+        req.actor_names,
+        stored_preferences.get("favorite_actors"),
+    )
+    effective_happy_ending_only = (
+        req.happy_ending_only
+        if req.happy_ending_only is not None
+        else bool(stored_preferences.get("happy_ending_only", False))
+    )
+    effective_mode = (
+        "user"
+        if effective_user_id is not None
+        else "item"
+        if req.drama_id is not None
+        else "discovery"
+    )
+    has_discovery_context = any(
+        [
+            effective_user_id is not None,
+            req.drama_id is not None,
+            req.mood,
+            req.text,
+            effective_genres,
+            effective_actor_names,
+            effective_happy_ending_only,
+            stored_preferences.get("favorite_drama_ids"),
+            stored_preferences.get("interested_drama_ids"),
+        ]
+    )
+
+    if not has_discovery_context:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one of user_id or drama_id must be provided.",
+            detail=(
+                "At least one of user_id, drama_id, mood/text, genres, actor_names "
+                "or stored user preferences must be provided."
+            ),
         )
 
     # Récupération du modèle
@@ -736,9 +876,15 @@ async def recommend(
     try:
         inference_start = time.time()
         results: list[RecommendationResult] = model.recommend(
-            user_id=req.user_id,
+            user_id=effective_user_id,
             drama_id=req.drama_id,
             top_k=req.top_k,
+            mood=req.mood,
+            text=req.text,
+            genres=effective_genres,
+            actor_names=effective_actor_names,
+            happy_ending_only=effective_happy_ending_only,
+            user_preferences=stored_preferences,
         )
         inference_time = time.time() - inference_start
     except ValueError as e:
@@ -760,7 +906,7 @@ async def recommend(
         monitor.record_prediction(
             score=r.score,
             model_type="HybridRecommender",
-            mode=req.get_mode(),
+            mode=effective_mode,
             inference_time=inference_time,
         )
 
@@ -769,8 +915,8 @@ async def recommend(
     logger.info(
         "Recommandation générée : mode=%s, user=%s, drama=%s, "
         "top_k=%d, résultats=%d, latence=%.2fms",
-        req.get_mode(),
-        req.user_id,
+        effective_mode,
+        effective_user_id,
         req.drama_id,
         req.top_k,
         len(results),
@@ -779,7 +925,7 @@ async def recommend(
 
     return RecommendResponse(
         success=True,
-        mode=req.get_mode(),
+        mode=effective_mode,
         count=len(results),
         recommendations=[r.to_dict() for r in results],
         request_id=request_id,

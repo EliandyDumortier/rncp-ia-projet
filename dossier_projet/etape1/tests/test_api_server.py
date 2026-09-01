@@ -186,3 +186,137 @@ def test_list_sentiments_limit_max():
         # Use limit within validation range (max 500)
         response = client.get("/api/v1/sentiments?limit=500")
         assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Preferences / Favorites / Watch History / Interest Feedback Tests
+# (new recommendation-related endpoints)
+# ---------------------------------------------------------------------------
+from api_server import (  # noqa: E402
+    get_current_user,
+    Favori,
+    HistoriqueVisionnage,
+    InteretUtilisateur,
+    Acteur,
+)
+
+
+def _fake_user(user_id: int = 1, role: str = "user") -> Utilisateur:
+    """Builds an in-memory Utilisateur for dependency overrides (no DB round-trip)."""
+    user = Utilisateur(
+        pseudonyme="testuser",
+        email_hache="hash",
+        mot_de_passe_hache="hash",
+        consentement_collecte=True,
+        consentement_marketing=False,
+        role=role,
+        fin_heureuse_uniquement=False,
+    )
+    user.id = user_id
+    user.date_inscription = datetime.utcnow()
+    return user
+
+
+@pytest.fixture(autouse=False)
+def override_current_user():
+    """Overrides get_current_user for tests that need an authenticated request."""
+    from api_server import app as fastapi_app
+
+    fake = _fake_user()
+    fastapi_app.dependency_overrides[get_current_user] = lambda: fake
+    yield fake
+    fastapi_app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_update_preferences_rejects_more_than_3_genres(override_current_user):
+    """PATCH preferences must reject more than 3 favorite genres (422)."""
+    response = client.patch(
+        "/api/v1/auth/me/preferences",
+        json={"genres": ["Romance", "Comédie", "Drame", "Thriller"]},
+    )
+    assert response.status_code == 422
+
+
+def test_update_preferences_rejects_more_than_5_actors(override_current_user):
+    """PATCH preferences must reject more than 5 favorite actors (422)."""
+    response = client.patch(
+        "/api/v1/auth/me/preferences",
+        json={"acteur_ids": [1, 2, 3, 4, 5, 6]},
+    )
+    assert response.status_code == 422
+
+
+def test_update_preferences_all_optional(override_current_user):
+    """PATCH preferences with an empty body must succeed (all fields optional)."""
+    with patch("api_server.SessionLocal") as mock_session_class:
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+
+        mock_query = Mock()
+        mock_query.join.return_value.filter.return_value.order_by.return_value.all.return_value = []
+        mock_query.filter.return_value.count.return_value = 0
+        mock_session.query.return_value = mock_query
+
+        response = client.patch("/api/v1/auth/me/preferences", json={})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["genres_preferes"] == []
+        assert data["acteurs_preferes"] == []
+
+
+def test_favoris_add_get_kdrama_not_found(override_current_user):
+    """Adding a favorite for a non-existent drama returns 404."""
+    with patch("api_server.SessionLocal") as mock_session_class:
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+        mock_session.query.return_value.filter.return_value.first.return_value = None
+
+        response = client.post("/api/v1/favoris/9999")
+        assert response.status_code == 404
+
+
+def test_favoris_list_empty(override_current_user):
+    """Listing favorites for a user with none returns an empty list."""
+    with patch("api_server.SessionLocal") as mock_session_class:
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+        mock_session.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
+
+        response = client.get("/api/v1/favoris")
+        assert response.status_code == 200
+        assert response.json() == []
+
+
+def test_historique_upsert_invalid_statut_rejected(override_current_user):
+    """PUT historique with an invalid statut value must return 422."""
+    response = client.put(
+        "/api/v1/historique/1",
+        json={"kdrama_id": 1, "episodes_vus": 3, "statut": "not_a_real_status"},
+    )
+    assert response.status_code == 422
+
+
+def test_interet_get_returns_null_when_absent(override_current_user):
+    """GET interet returns null when the user has no recorded feedback yet."""
+    with patch("api_server.SessionLocal") as mock_session_class:
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+        mock_session.query.return_value.filter.return_value.first.return_value = None
+
+        response = client.get("/api/v1/kdramas/1/interet")
+        assert response.status_code == 200
+        assert response.json() is None
+
+
+def test_interet_set_not_interested_kdrama_not_found(override_current_user):
+    """Setting interest for a non-existent drama returns 404."""
+    with patch("api_server.SessionLocal") as mock_session_class:
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+        mock_session.query.return_value.filter.return_value.first.return_value = None
+
+        response = client.put(
+            "/api/v1/kdramas/9999/interet",
+            json={"interesse": False},
+        )
+        assert response.status_code == 404

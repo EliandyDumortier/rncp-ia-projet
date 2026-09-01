@@ -1,6 +1,9 @@
-import { X, Heart, Star, Eye } from 'lucide-react';
+import { X, Heart, Star, Eye, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { Drama } from '../types';
 import { formatRating } from '../data';
+import { useAuth } from '../auth';
+import { dataApi } from '../api';
 
 interface DramaDetailModalProps {
   drama: Drama | null;
@@ -19,7 +22,44 @@ export function DramaDetailModal({
   isWatched = false,
   onAddToWatched,
 }: DramaDetailModalProps) {
+  const { user } = useAuth();
+  const [interest, setInterest] = useState<boolean | null>(null);
+  const [savingInterest, setSavingInterest] = useState(false);
+
+  // Load any existing "want to watch / not interested" feedback for this
+  // drama whenever the modal opens on a new drama.
+  useEffect(() => {
+    setInterest(null);
+    if (!drama || !user) return;
+    let cancelled = false;
+    dataApi
+      .getInteret(drama.id)
+      .then((res) => {
+        if (!cancelled) setInterest(res ? res.interesse : null);
+      })
+      .catch(() => {
+        if (!cancelled) setInterest(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [drama, user]);
+
   if (!drama) return null;
+
+  const handleSetInterest = async (interesse: boolean) => {
+    if (!user) return;
+    setSavingInterest(true);
+    try {
+      await dataApi.setInteret(drama.id, interesse);
+      setInterest(interesse);
+    } catch {
+      // Non-blocking: feedback is a nice-to-have signal, failing silently
+      // keeps the modal usable even if the API call fails.
+    } finally {
+      setSavingInterest(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -116,6 +156,40 @@ export function DramaDetailModal({
                   <Eye className="w-4 h-4" />
                   {isWatched ? 'Already Watched' : 'Add to Watched List'}
                 </button>
+              )}
+
+              {user && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-2">Want to watch this?</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleSetInterest(true)}
+                      disabled={savingInterest}
+                      aria-pressed={interest === true}
+                      className={`py-2 px-3 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+                        interest === true
+                          ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <ThumbsUp className="w-4 h-4" aria-hidden="true" />
+                      Want to watch
+                    </button>
+                    <button
+                      onClick={() => handleSetInterest(false)}
+                      disabled={savingInterest}
+                      aria-pressed={interest === false}
+                      className={`py-2 px-3 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+                        interest === false
+                          ? 'bg-slate-500 text-white hover:bg-slate-600'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <ThumbsDown className="w-4 h-4" aria-hidden="true" />
+                      Not interested
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>

@@ -40,7 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import (
     Column,
     Integer,
@@ -199,6 +199,7 @@ class Utilisateur(Base):
     date_derniere_activite: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
     date_suppression: Mapped[Optional[datetime]] = Column(DateTime)
     est_supprime: Mapped[bool] = Column(Boolean, default=False)
+    fin_heureuse_uniquement: Mapped[bool] = Column(Boolean, default=False)
     date_creation: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
     date_modification: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -214,6 +215,74 @@ class Note(Base):
     note: Mapped[int] = Column(Integer, nullable=False)
     commentaire: Mapped[Optional[str]] = Column(Text)
     date_note: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+
+
+class HistoriqueVisionnage(Base):
+    """Modèle ORM pour la table historique_visionnage (suivi du visionnage)."""
+    __tablename__ = "historique_visionnage"
+    __table_args__ = {"schema": "kdrama"}
+
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    utilisateur_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"))
+    kdrama_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.kdramas.id", ondelete="CASCADE"))
+    episodes_vus: Mapped[Optional[int]] = Column(Integer, default=0)
+    statut: Mapped[str] = Column(String(20), default="en_cours")  # a_voir, en_cours, termine, abandonne
+    date_debut: Mapped[Optional[datetime]] = Column(DateTime)
+    date_fin: Mapped[Optional[datetime]] = Column(DateTime)
+    date_creation: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+    date_modification: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Favori(Base):
+    """Modèle ORM pour la table favoris (liste de favoris K-Drama)."""
+    __tablename__ = "favoris"
+    __table_args__ = {"schema": "kdrama"}
+
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    utilisateur_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"))
+    kdrama_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.kdramas.id", ondelete="CASCADE"))
+    date_ajout: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+
+
+class InteretUtilisateur(Base):
+    """Modèle ORM pour la table interet_utilisateur (want to watch / not interested)."""
+    __tablename__ = "interet_utilisateur"
+    __table_args__ = {"schema": "kdrama"}
+
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    utilisateur_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"))
+    kdrama_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.kdramas.id", ondelete="CASCADE"))
+    interesse: Mapped[bool] = Column(Boolean, nullable=False)
+    date_creation: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+    date_modification: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UtilisateurGenrePrefere(Base):
+    """Modèle ORM pour la table utilisateur_genres_preferes (genres favoris, max 3)."""
+    __tablename__ = "utilisateur_genres_preferes"
+    __table_args__ = {"schema": "kdrama"}
+
+    utilisateur_id: Mapped[int] = Column(
+        Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"), primary_key=True
+    )
+    genre_id: Mapped[int] = Column(
+        Integer, ForeignKey("kdrama.genres.id", ondelete="CASCADE"), primary_key=True
+    )
+    date_ajout: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+
+
+class UtilisateurActeurPrefere(Base):
+    """Modèle ORM pour la table utilisateur_acteurs_preferes (acteurs favoris, max 5)."""
+    __tablename__ = "utilisateur_acteurs_preferes"
+    __table_args__ = {"schema": "kdrama"}
+
+    utilisateur_id: Mapped[int] = Column(
+        Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"), primary_key=True
+    )
+    acteur_id: Mapped[int] = Column(
+        Integer, ForeignKey("kdrama.acteurs.id", ondelete="CASCADE"), primary_key=True
+    )
+    date_ajout: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -444,9 +513,41 @@ class UserResponse(BaseModel):
     role: str
     consentement_collecte: bool
     consentement_marketing: bool
+    fin_heureuse_uniquement: bool = False
+    genres_preferes: list[str] = Field(default_factory=list)
+    acteurs_preferes: list["ActeurResponse"] = Field(default_factory=list)
+    nb_dramas_vus: int = 0
+    nb_favoris: int = 0
 
     class Config:
         from_attributes = True
+
+
+class PreferencesUpdate(BaseModel):
+    """Modèle pour la mise à jour des préférences de recommandation (toutes optionnelles)."""
+    genres: Optional[list[str]] = Field(
+        None, description="Noms des genres favoris (maximum 3)."
+    )
+    acteur_ids: Optional[list[int]] = Field(
+        None, description="Identifiants des acteurs/actrices favoris (maximum 5)."
+    )
+    fin_heureuse_uniquement: Optional[bool] = Field(
+        None, description="Ne recommander que des dramas à fin heureuse."
+    )
+
+    @field_validator("genres")
+    @classmethod
+    def _valider_genres(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v is not None and len(v) > 3:
+            raise ValueError("Maximum 3 favorite genres allowed")
+        return v
+
+    @field_validator("acteur_ids")
+    @classmethod
+    def _valider_acteurs(cls, v: Optional[list[int]]) -> Optional[list[int]]:
+        if v is not None and len(v) > 5:
+            raise ValueError("Maximum 5 favorite actors allowed")
+        return v
 
 
 class Token(BaseModel):
@@ -470,6 +571,64 @@ class NoteResponse(BaseModel):
     note: int
     commentaire: Optional[str] = None
     date_note: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FavoriResponse(BaseModel):
+    """Modèle de réponse pour un favori."""
+    id: int
+    utilisateur_id: int
+    kdrama_id: int
+    date_ajout: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class HistoriqueVisionnageUpsert(BaseModel):
+    """Modèle pour créer/mettre à jour une entrée d'historique de visionnage."""
+    kdrama_id: int
+    episodes_vus: int = Field(0, ge=0)
+    statut: str = Field(
+        "en_cours",
+        pattern="^(a_voir|en_cours|termine|abandonne)$",
+        description="a_voir, en_cours, termine ou abandonne",
+    )
+
+
+class HistoriqueVisionnageResponse(BaseModel):
+    """Modèle de réponse pour une entrée d'historique de visionnage."""
+    id: int
+    utilisateur_id: int
+    kdrama_id: int
+    episodes_vus: int
+    statut: str
+    date_debut: Optional[datetime] = None
+    date_fin: Optional[datetime] = None
+    date_creation: datetime
+    date_modification: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InteretUpdate(BaseModel):
+    """Modèle pour signaler l'intérêt d'un utilisateur pour un drama."""
+    interesse: bool = Field(
+        ..., description="True = je veux regarder, False = pas intéressé(e)"
+    )
+
+
+class InteretResponse(BaseModel):
+    """Modèle de réponse pour un retour d'intérêt utilisateur."""
+    id: int
+    utilisateur_id: int
+    kdrama_id: int
+    interesse: bool
+    date_creation: datetime
+    date_modification: datetime
 
     class Config:
         from_attributes = True
@@ -580,6 +739,53 @@ def test_db(db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # Endpoints d'authentification
 # ---------------------------------------------------------------------------
+def build_user_response(utilisateur: "Utilisateur", db: Session) -> "UserResponse":
+    """Construit un UserResponse enrichi (préférences + statistiques).
+
+    Args:
+        utilisateur: Utilisateur authentifié.
+        db: Session de base de données.
+
+    Returns:
+        UserResponse avec genres/acteurs favoris et compteurs.
+    """
+    genres_preferes = [
+        g.nom
+        for g in db.query(Genre)
+        .join(UtilisateurGenrePrefere, UtilisateurGenrePrefere.genre_id == Genre.id)
+        .filter(UtilisateurGenrePrefere.utilisateur_id == utilisateur.id)
+        .order_by(Genre.nom)
+        .all()
+    ]
+    acteurs_preferes = (
+        db.query(Acteur)
+        .join(UtilisateurActeurPrefere, UtilisateurActeurPrefere.acteur_id == Acteur.id)
+        .filter(UtilisateurActeurPrefere.utilisateur_id == utilisateur.id)
+        .order_by(Acteur.nom)
+        .all()
+    )
+    nb_dramas_vus = (
+        db.query(HistoriqueVisionnage)
+        .filter(HistoriqueVisionnage.utilisateur_id == utilisateur.id)
+        .count()
+    )
+    nb_favoris = db.query(Favori).filter(Favori.utilisateur_id == utilisateur.id).count()
+
+    return UserResponse(
+        id=utilisateur.id,
+        pseudonyme=utilisateur.pseudonyme,
+        date_inscription=utilisateur.date_inscription,
+        role=utilisateur.role,
+        consentement_collecte=utilisateur.consentement_collecte,
+        consentement_marketing=utilisateur.consentement_marketing,
+        fin_heureuse_uniquement=utilisateur.fin_heureuse_uniquement,
+        genres_preferes=genres_preferes,
+        acteurs_preferes=acteurs_preferes,
+        nb_dramas_vus=nb_dramas_vus,
+        nb_favoris=nb_favoris,
+    )
+
+
 @app.post(
     "/api/v1/auth/register",
     response_model=UserResponse,
@@ -639,7 +845,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     db.refresh(nouvel_utilisateur)
 
     logger.info("Nouvel utilisateur inscrit: %s (id=%d)", user_data.pseudonyme, nouvel_utilisateur.id)
-    return nouvel_utilisateur
+    return build_user_response(nouvel_utilisateur, db)
 
 
 @app.post(
@@ -682,6 +888,9 @@ def login(
     utilisateur.date_derniere_activite = datetime.utcnow()
     db.commit()
 
+    # NOTE: ce token (sub=id utilisateur réel, HS256, JWT_SECRET) est aussi
+    # accepté tel quel par le model-api de l'étape 3 (/recommend, /predict),
+    # qui partage le même secret — voir dossier_projet/etape3/src/model_api.py.
     token = creer_token_jwt(
         data={"sub": str(utilisateur.id), "role": utilisateur.role}
     )
@@ -699,16 +908,91 @@ def login(
     summary="Profil de l'utilisateur connecté",
     description="Returns the authenticated user's information.",
 )
-def get_me(current_user: Utilisateur = Depends(get_current_user)):
+def get_me(
+    current_user: Utilisateur = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Retourne le profil de l'utilisateur connecté.
 
     Args:
         current_user: Utilisateur authentifié (via JWT).
+        db: Session de base de données.
 
     Returns:
-        Les informations de l'utilisateur (sans données sensibles).
+        Les informations de l'utilisateur (sans données sensibles), avec
+        préférences de recommandation et statistiques.
     """
-    return current_user
+    return build_user_response(current_user, db)
+
+
+@app.patch(
+    "/api/v1/auth/me/preferences",
+    response_model=UserResponse,
+    summary="Mise à jour des préférences de recommandation",
+    description=(
+        "Updates the authenticated user's optional recommendation preferences: "
+        "favorite genres (max 3), favorite actors (max 5), and the strict "
+        "happy-ending-only flag. All fields are optional; omit a field to "
+        "leave it unchanged."
+    ),
+)
+def update_my_preferences(
+    prefs: PreferencesUpdate,
+    current_user: Utilisateur = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Met à jour les préférences de recommandation de l'utilisateur connecté.
+
+    Args:
+        prefs: Genres favoris (noms, max 3), acteurs favoris (ids, max 5) et/ou
+            préférence de fin heureuse. Tous les champs sont optionnels.
+        current_user: Utilisateur authentifié.
+        db: Session de base de données.
+
+    Returns:
+        Le profil utilisateur mis à jour.
+
+    Raises:
+        HTTPException: 400 si un genre ou un acteur indiqué n'existe pas.
+    """
+    if prefs.fin_heureuse_uniquement is not None:
+        current_user.fin_heureuse_uniquement = prefs.fin_heureuse_uniquement
+
+    if prefs.genres is not None:
+        genres_trouves = (
+            db.query(Genre).filter(Genre.nom.in_(prefs.genres)).all() if prefs.genres else []
+        )
+        if len(genres_trouves) != len(set(prefs.genres)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more selected genres do not exist",
+            )
+        db.query(UtilisateurGenrePrefere).filter(
+            UtilisateurGenrePrefere.utilisateur_id == current_user.id
+        ).delete()
+        for genre in genres_trouves:
+            db.add(UtilisateurGenrePrefere(utilisateur_id=current_user.id, genre_id=genre.id))
+
+    if prefs.acteur_ids is not None:
+        acteurs_trouves = (
+            db.query(Acteur).filter(Acteur.id.in_(prefs.acteur_ids)).all()
+            if prefs.acteur_ids
+            else []
+        )
+        if len(acteurs_trouves) != len(set(prefs.acteur_ids)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more selected actors do not exist",
+            )
+        db.query(UtilisateurActeurPrefere).filter(
+            UtilisateurActeurPrefere.utilisateur_id == current_user.id
+        ).delete()
+        for acteur in acteurs_trouves:
+            db.add(UtilisateurActeurPrefere(utilisateur_id=current_user.id, acteur_id=acteur.id))
+
+    db.commit()
+    logger.info("Préférences mises à jour pour l'utilisateur id=%d", current_user.id)
+    return build_user_response(current_user, db)
 
 
 @app.delete(
@@ -724,7 +1008,9 @@ def delete_me(
     """Implémente le droit à l'effacement (RGPD art. 17).
 
     Anonymise le compte au lieu de le supprimer physiquement pour
-    préserver l'intégrité référentielle des notes et avis existants.
+    préserver l'intégrité référentielle des notes et avis existants, et
+    supprime toutes les données personnelles liées aux préférences de
+    recommandation (historique, favoris, intérêts, genres/acteurs favoris).
 
     Args:
         current_user: Utilisateur authentifié.
@@ -736,7 +1022,23 @@ def delete_me(
     current_user.consentement_collecte = False
     current_user.consentement_marketing = False
     current_user.date_consentement = None
+    current_user.fin_heureuse_uniquement = False
     current_user.est_supprime = True
+
+    db.query(HistoriqueVisionnage).filter(
+        HistoriqueVisionnage.utilisateur_id == current_user.id
+    ).delete()
+    db.query(Favori).filter(Favori.utilisateur_id == current_user.id).delete()
+    db.query(InteretUtilisateur).filter(
+        InteretUtilisateur.utilisateur_id == current_user.id
+    ).delete()
+    db.query(UtilisateurGenrePrefere).filter(
+        UtilisateurGenrePrefere.utilisateur_id == current_user.id
+    ).delete()
+    db.query(UtilisateurActeurPrefere).filter(
+        UtilisateurActeurPrefere.utilisateur_id == current_user.id
+    ).delete()
+
     db.commit()
     logger.info("Compte anonymisé (RGPD art. 17): id=%d", current_user.id)
 
@@ -757,9 +1059,24 @@ def export_my_data(
         db: Session de base de données.
 
     Returns:
-        Dictionnaire JSON contenant toutes les données de l'utilisateur.
+        Dictionnaire JSON contenant toutes les données de l'utilisateur,
+        y compris les préférences de recommandation (genres/acteurs
+        favoris, fin heureuse), les favoris, l'historique de visionnage
+        et les retours d'intérêt.
     """
     notes = db.query(Note).filter(Note.utilisateur_id == current_user.id).all()
+    historique = (
+        db.query(HistoriqueVisionnage)
+        .filter(HistoriqueVisionnage.utilisateur_id == current_user.id)
+        .all()
+    )
+    favoris = db.query(Favori).filter(Favori.utilisateur_id == current_user.id).all()
+    interets = (
+        db.query(InteretUtilisateur)
+        .filter(InteretUtilisateur.utilisateur_id == current_user.id)
+        .all()
+    )
+    profil = build_user_response(current_user, db)
     return {
         "utilisateur": {
             "id": current_user.id,
@@ -768,6 +1085,9 @@ def export_my_data(
             "role": current_user.role,
             "consentement_collecte": current_user.consentement_collecte,
             "consentement_marketing": current_user.consentement_marketing,
+            "fin_heureuse_uniquement": current_user.fin_heureuse_uniquement,
+            "genres_preferes": profil.genres_preferes,
+            "acteurs_preferes": [a.nom for a in profil.acteurs_preferes],
         },
         "notes": [
             {
@@ -778,6 +1098,29 @@ def export_my_data(
                 "date_note": n.date_note.isoformat(),
             }
             for n in notes
+        ],
+        "historique_visionnage": [
+            {
+                "id": h.id,
+                "kdrama_id": h.kdrama_id,
+                "episodes_vus": h.episodes_vus,
+                "statut": h.statut,
+                "date_creation": h.date_creation.isoformat(),
+            }
+            for h in historique
+        ],
+        "favoris": [
+            {"id": f.id, "kdrama_id": f.kdrama_id, "date_ajout": f.date_ajout.isoformat()}
+            for f in favoris
+        ],
+        "interets": [
+            {
+                "id": i.id,
+                "kdrama_id": i.kdrama_id,
+                "interesse": i.interesse,
+                "date_creation": i.date_creation.isoformat(),
+            }
+            for i in interets
         ],
         "export_date": datetime.utcnow().isoformat(),
     }
@@ -1269,6 +1612,284 @@ def create_note(
     db.refresh(nouvelle_note)
     logger.info("Note créée: kdrama=%d, user=%d, note=%d", kdrama_id, current_user.id, note_data.note)
     return nouvelle_note
+
+
+# ---------------------------------------------------------------------------
+# Endpoints — Favoris (bookmarks, distincts des notes)
+# ---------------------------------------------------------------------------
+@app.get(
+    "/api/v1/favoris",
+    response_model=list[FavoriResponse],
+    summary="Liste des favoris de l'utilisateur connecté",
+)
+def list_my_favoris(
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Retourne la liste des favoris de l'utilisateur connecté.
+
+    Args:
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Liste des favoris, du plus récent au plus ancien.
+    """
+    return (
+        db.query(Favori)
+        .filter(Favori.utilisateur_id == current_user.id)
+        .order_by(Favori.date_ajout.desc())
+        .all()
+    )
+
+
+@app.post(
+    "/api/v1/favoris/{kdrama_id}",
+    response_model=FavoriResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ajouter un K-Drama aux favoris",
+)
+def add_favori(
+    kdrama_id: int,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Ajoute un K-Drama aux favoris de l'utilisateur connecté (idempotent).
+
+    Args:
+        kdrama_id: Identifiant du K-Drama à ajouter.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Le favori créé (ou existant si déjà présent).
+
+    Raises:
+        HTTPException: 404 si le K-Drama n'existe pas.
+    """
+    if not db.query(Kdrama).filter(Kdrama.id == kdrama_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    existant = db.query(Favori).filter(
+        Favori.utilisateur_id == current_user.id,
+        Favori.kdrama_id == kdrama_id,
+    ).first()
+    if existant:
+        return existant
+
+    favori = Favori(utilisateur_id=current_user.id, kdrama_id=kdrama_id)
+    db.add(favori)
+    db.commit()
+    db.refresh(favori)
+    logger.info("Favori ajouté: kdrama=%d, user=%d", kdrama_id, current_user.id)
+    return favori
+
+
+@app.delete(
+    "/api/v1/favoris/{kdrama_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Retirer un K-Drama des favoris",
+)
+def remove_favori(
+    kdrama_id: int,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Retire un K-Drama des favoris de l'utilisateur connecté.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama à retirer.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+    """
+    db.query(Favori).filter(
+        Favori.utilisateur_id == current_user.id,
+        Favori.kdrama_id == kdrama_id,
+    ).delete()
+    db.commit()
+    logger.info("Favori retiré: kdrama=%d, user=%d", kdrama_id, current_user.id)
+
+
+# ---------------------------------------------------------------------------
+# Endpoints — Historique de visionnage
+# ---------------------------------------------------------------------------
+@app.get(
+    "/api/v1/historique",
+    response_model=list[HistoriqueVisionnageResponse],
+    summary="Historique de visionnage de l'utilisateur connecté",
+)
+def list_my_historique(
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Retourne l'historique de visionnage de l'utilisateur connecté.
+
+    Args:
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Liste des entrées d'historique, de la plus récente à la plus ancienne.
+    """
+    return (
+        db.query(HistoriqueVisionnage)
+        .filter(HistoriqueVisionnage.utilisateur_id == current_user.id)
+        .order_by(HistoriqueVisionnage.date_modification.desc())
+        .all()
+    )
+
+
+@app.put(
+    "/api/v1/historique/{kdrama_id}",
+    response_model=HistoriqueVisionnageResponse,
+    summary="Créer/mettre à jour une entrée d'historique de visionnage",
+)
+def upsert_historique(
+    kdrama_id: int,
+    payload: HistoriqueVisionnageUpsert,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Crée ou met à jour le statut de visionnage d'un K-Drama.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama.
+        payload: Statut et nombre d'épisodes vus.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        L'entrée d'historique créée ou mise à jour.
+
+    Raises:
+        HTTPException: 404 si le K-Drama n'existe pas.
+    """
+    if not db.query(Kdrama).filter(Kdrama.id == kdrama_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    entree = db.query(HistoriqueVisionnage).filter(
+        HistoriqueVisionnage.utilisateur_id == current_user.id,
+        HistoriqueVisionnage.kdrama_id == kdrama_id,
+    ).first()
+
+    if entree is None:
+        entree = HistoriqueVisionnage(
+            utilisateur_id=current_user.id,
+            kdrama_id=kdrama_id,
+            episodes_vus=payload.episodes_vus,
+            statut=payload.statut,
+            date_debut=datetime.utcnow(),
+        )
+        db.add(entree)
+    else:
+        entree.episodes_vus = payload.episodes_vus
+        entree.statut = payload.statut
+        if payload.statut == "termine" and entree.date_fin is None:
+            entree.date_fin = datetime.utcnow()
+
+    db.commit()
+    db.refresh(entree)
+    logger.info(
+        "Historique mis à jour: kdrama=%d, user=%d, statut=%s",
+        kdrama_id, current_user.id, payload.statut,
+    )
+    return entree
+
+
+# ---------------------------------------------------------------------------
+# Endpoints — Intérêt utilisateur ("want to watch" / "not interested")
+# ---------------------------------------------------------------------------
+@app.put(
+    "/api/v1/kdramas/{kdrama_id}/interet",
+    response_model=InteretResponse,
+    summary="Signaler l'intérêt pour un K-Drama",
+    description=(
+        "Records whether the authenticated user wants to watch (interesse=true) "
+        "or is not interested (interesse=false) in a K-Drama. Used both for the "
+        "user's own experience and as feedback/training signal for the "
+        "recommendation model (etape 3)."
+    ),
+)
+def set_interet(
+    kdrama_id: int,
+    payload: InteretUpdate,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Crée ou met à jour le retour d'intérêt d'un utilisateur pour un drama.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama.
+        payload: Intérêt (True = veut regarder, False = pas intéressé).
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Le retour d'intérêt créé ou mis à jour.
+
+    Raises:
+        HTTPException: 404 si le K-Drama n'existe pas.
+    """
+    if not db.query(Kdrama).filter(Kdrama.id == kdrama_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    entree = db.query(InteretUtilisateur).filter(
+        InteretUtilisateur.utilisateur_id == current_user.id,
+        InteretUtilisateur.kdrama_id == kdrama_id,
+    ).first()
+
+    if entree is None:
+        entree = InteretUtilisateur(
+            utilisateur_id=current_user.id,
+            kdrama_id=kdrama_id,
+            interesse=payload.interesse,
+        )
+        db.add(entree)
+    else:
+        entree.interesse = payload.interesse
+
+    db.commit()
+    db.refresh(entree)
+    logger.info(
+        "Intérêt enregistré: kdrama=%d, user=%d, interesse=%s",
+        kdrama_id, current_user.id, payload.interesse,
+    )
+    return entree
+
+
+@app.get(
+    "/api/v1/kdramas/{kdrama_id}/interet",
+    response_model=Optional[InteretResponse],
+    summary="Récupérer l'intérêt de l'utilisateur pour un K-Drama",
+)
+def get_interet(
+    kdrama_id: int,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Retourne le retour d'intérêt existant de l'utilisateur pour un drama, s'il existe.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Le retour d'intérêt existant, ou None.
+    """
+    return db.query(InteretUtilisateur).filter(
+        InteretUtilisateur.utilisateur_id == current_user.id,
+        InteretUtilisateur.kdrama_id == kdrama_id,
+    ).first()
 
 
 # ---------------------------------------------------------------------------

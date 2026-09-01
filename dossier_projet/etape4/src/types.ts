@@ -12,6 +12,7 @@ export interface Drama {
 export interface Recommendation extends Drama {
   predicted_rating?: number;
   score?: number;
+  explanation?: string;
 }
 
 export interface FavoriteItem {
@@ -37,6 +38,61 @@ export interface User {
   user_id: number;
   username: string;
   jwt_token: string;
+}
+
+export interface UserProfile {
+  id: number;
+  pseudonyme: string;
+  date_inscription: string;
+  role: string;
+  consentement_collecte: boolean;
+  consentement_marketing: boolean;
+  fin_heureuse_uniquement: boolean;
+  genres_preferes: string[];
+  acteurs_preferes: ActeurSummary[];
+  nb_dramas_vus: number;
+  nb_favoris: number;
+}
+
+export interface ActeurSummary {
+  id: number;
+  nom: string;
+  nom_original: string | null;
+  photo_url?: string | null;
+}
+
+export interface PreferencesUpdateRequest {
+  genres?: string[];
+  acteur_ids?: number[];
+  fin_heureuse_uniquement?: boolean;
+}
+
+export interface FavoriResponse {
+  id: number;
+  utilisateur_id: number;
+  kdrama_id: number;
+  date_ajout: string;
+}
+
+export interface HistoriqueVisionnageResponse {
+  id: number;
+  utilisateur_id: number;
+  kdrama_id: number;
+  episodes_vus: number;
+  statut: 'a_voir' | 'en_cours' | 'termine' | 'abandonne';
+  date_debut: string | null;
+  date_fin: string | null;
+  date_creation: string;
+  date_modification: string;
+}
+
+export interface InteretResponse {
+  id: number;
+  utilisateur_id: number;
+  kdrama_id: number;
+  interesse: boolean;
+  date_creation: string;
+  date_modification: string;
 }
 
 export interface ModelInfo {

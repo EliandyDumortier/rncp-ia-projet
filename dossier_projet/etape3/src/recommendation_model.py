@@ -1,21 +1,14 @@
 # ============================================================
 # Modèle de recommandation hybride pour K-Dramas
-# Fichier : recommendation_model.py
-#
-# Combine :
-#   1. Filtrage basé sur le contenu (content-based) via
-#      sentence-transformers (embeddings sémantiques des synopsis).
-#   2. Filtrage collaboratif (collaborative filtering) via
-#      scikit-learn (NearestNeighbors sur matrice utilisateur-drama).
-#
-# Auteur : Équipe Data Science
-# Étape 3 — RNCP AI Project
 # ============================================================
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,32 +17,40 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 logger = logging.getLogger(__name__)
 
-# Constantes de configuration
 DEFAULT_MODEL_DIR = Path(__file__).parent / "model_artifacts"
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 TOP_K_DEFAULT = 10
 RANDOM_STATE = 42
 
-
-# ============================================================
-# Structures de données
-# ============================================================
+_CLUSTER_STOPWORDS = {
+    "actors",
+    "ending",
+    "genres",
+    "genre",
+    "drama",
+    "dramas",
+    "story",
+    "stories",
+    "kdrama",
+    "kdramas",
+}
 
 
 @dataclass
 class RecommendationResult:
-    """Représente le résultat d'une recommandation pour un K-Drama."""
-
     drama_id: int
     title: str
     score: float
     genres: list[str] = field(default_factory=list)
     reason: str = ""
+    explanation: str = ""
     synopsis: str = ""
     rating: float = 0.0
     year: int = 0
@@ -57,7 +58,7 @@ class RecommendationResult:
     poster: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        """Convertit le résultat en dictionnaire sérialisable JSON."""
+        explanation = self.explanation or self.reason
         return {
             "id": self.drama_id,
             "kdrama_id": self.drama_id,
@@ -66,7 +67,8 @@ class RecommendationResult:
             "titre": self.title,
             "score": round(float(self.score), 4),
             "genres": self.genres,
-            "reason": self.reason,
+            "reason": explanation,
+            "explanation": explanation,
             "synopsis": self.synopsis,
             "rating": round(float(self.rating), 1),
             "note_moyenne": round(float(self.rating), 1),
@@ -82,8 +84,6 @@ class RecommendationResult:
 
 @dataclass
 class ModelMetrics:
-    """Métriques d'évaluation du modèle (pour le monitoring)."""
-
     training_time_seconds: float = 0.0
     num_dramas: int = 0
     num_users: int = 0
@@ -102,49 +102,12 @@ class ModelMetrics:
         }
 
 
-# ============================================================
-# Modèle de recommandation hybride
-# ============================================================
-
-
 class HybridRecommender:
-    """
-    Modèle de recommandation hybride pour K-Dramas.
-
-    Combine deux approches :
-      - **Content-based** : utilise sentence-transformers pour générer des
-        embeddings sémantiques des synopsis, puis calcule la similarité
-        cosinus entre les dramas.
-      - **Collaborative filtering** : utilise scikit-learn NearestNeighbors
-        sur la matrice d'interactions utilisateur-drama pour identifier
-        les dramas appréciés par des utilisateurs similaires.
-
-    Le score final est une moyenne pondérée des deux approches :
-        score = alpha * content_score + (1 - alpha) * collaborative_score
-
-    Attributes:
-        alpha: Poids du content-based (0.0 à 1.0).
-        embedding_model_name: Nom du modèle sentence-transformers utilisé.
-        content_embeddings: Matrice des embeddings de contenu (numpy array).
-        collaborative_model: Modèle NearestNeighbors entraîné.
-        dramas_df: DataFrame contenant les métadonnées des dramas.
-        interactions_df: DataFrame des interactions utilisateur-drama.
-    """
-
     def __init__(
         self,
         alpha: float = 0.6,
         embedding_model_name: str = DEFAULT_EMBEDDING_MODEL,
     ) -> None:
-        """
-        Initialise le modèle de recommandation hybride.
-
-        Args:
-            alpha: Poids du content-based filtering (entre 0 et 1).
-                   Valeur par défaut 0.6 (60% content, 40% collaborative).
-            embedding_model_name: Nom du modèle HuggingFace à utiliser
-                                  pour les embeddings de texte.
-        """
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f"alpha doit être entre 0 et 1, reçu : {alpha}")
 
@@ -155,81 +118,41 @@ class HybridRecommender:
         self.dramas_df: pd.DataFrame | None = None
         self.interactions_df: pd.DataFrame | None = None
         self.user_item_matrix: pd.DataFrame | None = None
+        self.metrics = ModelMetrics()
         self._embedding_model = None
         self._is_trained = False
-        self.metrics = ModelMetrics()
-
-    # ============================================================
-    # Entraînement
-    # ============================================================
+        self._drama_id_to_index: dict[int, int] = {}
+        self.drama_clusters: dict[int, int] = {}
+        self.cluster_labels: dict[int, str] = {}
 
     def train(
         self,
         dramas_df: pd.DataFrame,
         interactions_df: pd.DataFrame,
     ) -> ModelMetrics:
-        """
-        Entraîne le modèle de recommandation hybride.
-
-        Étapes :
-          1. Validation des données d'entrée.
-          2. Génération des embeddings de contenu (sentence-transformers).
-          3. Construction de la matrice utilisateur-drama.
-          4. Entraînement du modèle de filtrage collaboratif (NearestNeighbors).
-          5. Calcul des métriques d'entraînement.
-
-        Args:
-            dramas_df: DataFrame avec colonnes obligatoires :
-                       ['drama_id', 'title', 'synopsis', 'genres']
-            interactions_df: DataFrame avec colonnes obligatoires :
-                             ['user_id', 'drama_id', 'rating']
-
-        Returns:
-            ModelMetrics: Métriques d'entraînement.
-
-        Raises:
-            ValueError: Si les données d'entrée sont invalides.
-        """
         start_time = time.time()
-        logger.info("Début de l'entraînement du modèle hybride...")
-
-        # --- Validation des données ---
         self._validate_training_data(dramas_df, interactions_df)
-        self.dramas_df = dramas_df.copy()
+
+        self.dramas_df = self._prepare_dramas_dataframe(dramas_df.copy())
         self.interactions_df = interactions_df.copy()
 
-        # --- 1. Content-based : embeddings de contenu ---
-        logger.info(
-            "Génération des embeddings de contenu avec %s...",
-            self.embedding_model_name,
-        )
         self._load_embedding_model()
         self._generate_content_embeddings()
-
-        # --- 2. Collaborative filtering : matrice utilisateur-drama ---
-        logger.info("Construction de la matrice utilisateur-drama...")
+        self._build_content_clusters()
         self._build_user_item_matrix()
-
-        # --- 3. Entraînement du modèle collaboratif ---
-        logger.info("Entraînement du modèle NearestNeighbors...")
         self._train_collaborative_model()
 
-        # --- Calcul des métriques ---
         self.metrics.training_time_seconds = time.time() - start_time
-        self.metrics.num_dramas = len(dramas_df)
-        self.metrics.num_users = interactions_df["user_id"].nunique()
-        self.metrics.num_interactions = len(interactions_df)
+        self.metrics.num_dramas = len(self.dramas_df)
+        self.metrics.num_users = self.interactions_df["user_id"].nunique()
+        self.metrics.num_interactions = len(self.interactions_df)
         self.metrics.embedding_dim = (
-            self.content_embeddings.shape[1]
-            if self.content_embeddings is not None
-            else 0
+            int(self.content_embeddings.shape[1]) if self.content_embeddings is not None else 0
         )
         self.metrics.last_trained_at = pd.Timestamp.now().isoformat()
-
         self._is_trained = True
         logger.info(
-            "Entraînement terminé en %.2f secondes. "
-            "%d dramas, %d utilisateurs, %d interactions.",
+            "Entraînement terminé en %.2fs (%d dramas, %d utilisateurs, %d interactions).",
             self.metrics.training_time_seconds,
             self.metrics.num_dramas,
             self.metrics.num_users,
@@ -237,727 +160,189 @@ class HybridRecommender:
         )
         return self.metrics
 
-    def _validate_training_data(
-        self,
-        dramas_df: pd.DataFrame,
-        interactions_df: pd.DataFrame,
-    ) -> None:
-        """Valide les DataFrames d'entraînement avant utilisation."""
-        required_drama_cols = {"drama_id", "title", "synopsis", "genres"}
-        required_interaction_cols = {"user_id", "drama_id", "rating"}
-
-        if dramas_df.empty:
-            raise ValueError("Le DataFrame des dramas est vide.")
-        if interactions_df.empty:
-            raise ValueError("Le DataFrame des interactions est vide.")
-
-        missing_drama = required_drama_cols - set(dramas_df.columns)
-        if missing_drama:
-            raise ValueError(f"Colonnes manquantes dans dramas_df : {missing_drama}")
-
-        missing_interaction = required_interaction_cols - set(interactions_df.columns)
-        if missing_interaction:
-            raise ValueError(
-                f"Colonnes manquantes dans interactions_df : " f"{missing_interaction}"
-            )
-
-        # Vérification des types de rating
-        if not pd.api.types.is_numeric_dtype(interactions_df["rating"]):
-            raise ValueError("La colonne 'rating' doit être numérique.")
-
-        logger.info("Validation des données d'entraînement : OK")
-
-    def _load_embedding_model(self) -> None:
-        """Charge le modèle sentence-transformers (lazy loading)."""
-        if self._embedding_model is not None:
-            return
-
-        try:
-            from sentence_transformers import SentenceTransformer
-
-            self._embedding_model = SentenceTransformer(self.embedding_model_name)
-            logger.info(
-                "Modèle sentence-transformers chargé : %s",
-                self.embedding_model_name,
-            )
-        except ImportError:
-            logger.warning(
-                "sentence-transformers non disponible. "
-                "Utilisation d'un fallback TF-IDF."
-            )
-            self._embedding_model = _TFIDFFallback()
-
-    def _generate_content_embeddings(self) -> None:
-        """
-        Génère les embeddings de contenu pour chaque K-Drama.
-
-        Combine le synopsis et les genres dans un texte unique,
-        puis génère l'embedding via sentence-transformers.
-        """
-        if self.dramas_df is None:
-            raise RuntimeError("dramas_df n'est pas initialisé.")
-
-        # Construction du texte combiné : synopsis + genres
-        texts = []
-        for _, row in self.dramas_df.iterrows():
-            synopsis = str(row.get("synopsis", ""))
-            genres = str(row.get("genres", ""))
-            combined = f"{synopsis} Genres: {genres}"
-            texts.append(combined)
-
-        # Génération des embeddings
-        embeddings = self._embedding_model.encode(
-            texts,
-            show_progress_bar=False,
-            convert_to_numpy=True,
-        )
-
-        # Normalisation L2 pour la similarité cosinus
-        self.content_embeddings = normalize(embeddings, norm="l2")
-        logger.info(
-            "Embeddings générés : forme %s",
-            self.content_embeddings.shape,
-        )
-
-    def _build_user_item_matrix(self) -> None:
-        """Construit la matrice d'interactions utilisateur-drama."""
-        if self.interactions_df is None:
-            raise RuntimeError("interactions_df n'est pas initialisé.")
-
-        # Pivot : lignes = utilisateurs, colonnes = dramas, valeurs = rating
-        self.user_item_matrix = self.interactions_df.pivot_table(
-            index="user_id",
-            columns="drama_id",
-            values="rating",
-            fill_value=0.0,
-        )
-        logger.info(
-            "Matrice utilisateur-drama : %d utilisateurs x %d dramas",
-            self.user_item_matrix.shape[0],
-            self.user_item_matrix.shape[1],
-        )
-
-    def _train_collaborative_model(self) -> None:
-        """Entraîne le modèle NearestNeighbors pour le filtrage collaboratif."""
-        if self.user_item_matrix is None:
-            raise RuntimeError("user_item_matrix n'est pas construit.")
-
-        # Utilisation de la métrique cosine pour la similarité entre utilisateurs
-        self.collaborative_model = NearestNeighbors(
-            n_neighbors=min(20, self.user_item_matrix.shape[0]),
-            metric="cosine",
-            algorithm="brute",
-        )
-        self.collaborative_model.fit(self.user_item_matrix.values)
-        logger.info("Modèle NearestNeighbors entraîné avec succès.")
-
-    # ============================================================
-    # Inférence
-    # ============================================================
-
     def recommend(
         self,
         user_id: int | None = None,
         drama_id: int | None = None,
         top_k: int = TOP_K_DEFAULT,
+        mood: str | None = None,
+        text: str | None = None,
+        genres: list[str] | None = None,
+        actor_names: list[str] | None = None,
+        happy_ending_only: bool | None = None,
+        user_preferences: dict[str, Any] | None = None,
     ) -> list[RecommendationResult]:
-        """
-        Génère des recommandations pour un utilisateur ou un drama donné.
-
-        Deux modes de fonctionnement :
-          - **Mode utilisateur** (user_id fourni) : recommande des dramas
-            basés sur l'historique de l'utilisateur et les utilisateurs similaires.
-          - **Mode item** (drama_id fourni) : recommande des dramas similaires
-            au drama spécifié (content-based + collaborative).
-
-        Args:
-            user_id: ID de l'utilisateur pour les recommandations personnalisées.
-            drama_id: ID du drama de référence pour les recommandations similaires.
-            top_k: Nombre de recommandations à retourner (défaut : 10).
-
-        Returns:
-            Liste triée de RecommendationResult (du plus pertinent au moins pertinent).
-
-        Raises:
-            RuntimeError: Si le modèle n'est pas entraîné.
-            ValueError: Si ni user_id ni drama_id n'est fourni, ou si top_k <= 0.
-        """
         self._check_trained()
-
         if top_k <= 0:
             raise ValueError(f"top_k doit être > 0, reçu : {top_k}")
 
-        if user_id is None and drama_id is None:
-            raise ValueError("Au moins un de user_id ou drama_id doit être fourni.")
+        user_preferences = user_preferences or {}
+        resolved_genres = genres if genres is not None else user_preferences.get("favorite_genres")
+        resolved_actors = (
+            actor_names if actor_names is not None else user_preferences.get("favorite_actors")
+        )
+        resolved_happy = (
+            happy_ending_only
+            if happy_ending_only is not None
+            else user_preferences.get("happy_ending_only", False)
+        )
+        query_text = self._build_query_text(mood, text, resolved_genres, resolved_actors, resolved_happy)
+
+        positive_seed_ids = self._unique_ints(
+            user_preferences.get("favorite_drama_ids", [])
+            + user_preferences.get("interested_drama_ids", [])
+        )
+        negative_seed_ids = self._unique_ints(user_preferences.get("disliked_drama_ids", []))
+
+        has_request_context = any(
+            [
+                user_id is not None,
+                drama_id is not None,
+                bool(query_text),
+                bool(resolved_genres),
+                bool(resolved_actors),
+                bool(positive_seed_ids),
+                bool(resolved_happy),
+            ]
+        )
+        if not has_request_context:
+            raise ValueError(
+                "Au moins un de user_id, drama_id, mood/text, genres, actor_names "
+                "ou préférences utilisateur doit être fourni."
+            )
 
         if user_id is not None:
-            return self._recommend_for_user(user_id, top_k)
+            base_scores, exclude_ids, liked_ids = self._score_for_user(
+                user_id=user_id,
+                extra_positive_ids=positive_seed_ids,
+                extra_negative_ids=negative_seed_ids,
+            )
+            mode = "user"
+        elif drama_id is not None:
+            base_scores, exclude_ids, liked_ids = self._score_for_drama(
+                drama_id=drama_id,
+                extra_positive_ids=positive_seed_ids,
+                extra_negative_ids=negative_seed_ids,
+            )
+            mode = "item"
         else:
-            assert drama_id is not None
-            return self._recommend_similar_to_drama(drama_id, top_k)
+            base_scores = self._popular_scores()
+            exclude_ids = set(negative_seed_ids)
+            liked_ids = positive_seed_ids
+            if positive_seed_ids:
+                seeded_scores = self._seed_similarity_scores(positive_seed_ids)
+                base_scores = 0.65 * seeded_scores + 0.35 * base_scores
+            mode = "discovery"
 
-    def predict(
-        self,
-        user_id: int,
-        drama_id: int,
-    ) -> float:
-        """
-        Prédit la note qu'un utilisateur donnerait à un K-Drama.
+        scores = base_scores.copy()
+        scores = scores.drop(labels=list(exclude_ids), errors="ignore")
+        scores = scores[scores.index.isin(self.dramas_df["drama_id"].tolist())]
 
-        Utilise une combinaison pondérée :
-          - Score de similarité de contenu entre le drama cible et
-            les dramas déjà notés par l'utilisateur.
-          - Score collaboratif basé sur les utilisateurs similaires
-            qui ont noté ce drama.
+        if negative_seed_ids:
+            penalty = self._seed_similarity_scores(negative_seed_ids).reindex(scores.index).fillna(0.0)
+            scores = scores - penalty * 0.35
 
-        Args:
-            user_id: ID de l'utilisateur.
-            drama_id: ID du drama à évaluer.
+        genre_mask = self._match_mask(scores.index.tolist(), resolved_genres, "genre")
+        actor_mask = self._match_mask(scores.index.tolist(), resolved_actors, "actor")
+        query_scores = self._query_similarity_scores(query_text).reindex(scores.index).fillna(0.0)
 
-        Returns:
-            Score prédit entre 0.0 et 10.0.
+        if not query_scores.empty and query_scores.max() > 0:
+            scores = scores + query_scores * 0.4
 
-        Raises:
-            RuntimeError: Si le modèle n'est pas entraîné.
-            ValueError: Si l'utilisateur ou le drama n'existe pas.
-        """
+        scores = self._apply_preference_adjustments(
+            scores=scores,
+            genre_mask=genre_mask,
+            actor_mask=actor_mask,
+            top_k=top_k,
+        )
+
+        if resolved_happy:
+            happy_mask = self._happy_ending_mask(scores.index.tolist())
+            scores = scores[happy_mask]
+
+        scores = scores[scores > 0].sort_values(ascending=False).head(top_k)
+
+        results: list[RecommendationResult] = []
+        for candidate_id, score in scores.items():
+            info = self._get_drama_info(int(candidate_id))
+            if not info:
+                continue
+            explanation = self._build_explanation(
+                drama_id=int(candidate_id),
+                mode=mode,
+                liked_ids=liked_ids,
+                requested_genres=resolved_genres or [],
+                requested_actors=resolved_actors or [],
+                happy_ending_only=bool(resolved_happy),
+                query_text=query_text,
+                genre_match=bool(genre_mask.get(candidate_id, False)),
+                actor_match=bool(actor_mask.get(candidate_id, False)),
+                query_score=float(query_scores.get(candidate_id, 0.0)),
+            )
+            results.append(
+                RecommendationResult(
+                    drama_id=int(candidate_id),
+                    title=info["title"],
+                    score=float(score),
+                    genres=info.get("genres", []),
+                    reason=explanation,
+                    explanation=explanation,
+                    synopsis=info.get("synopsis", ""),
+                    rating=info.get("rating", 0.0),
+                    year=info.get("year", 0),
+                    episodes=info.get("episodes", 0),
+                    poster=info.get("poster", ""),
+                )
+            )
+        return results
+
+    def predict(self, user_id: int, drama_id: int) -> float:
         self._check_trained()
-
-        if self.dramas_df is None or self.user_item_matrix is None:
+        if self.dramas_df is None or self.content_embeddings is None:
             raise RuntimeError("Modèle incomplet.")
-
-        if drama_id not in self.dramas_df["drama_id"].values:
+        if drama_id not in self._drama_id_to_index:
             raise ValueError(f"Drama {drama_id} introuvable dans le catalogue.")
 
-        # Score content-based
-        content_score = self._compute_content_prediction(user_id, drama_id)
+        content_score = self._content_prediction(user_id, drama_id)
+        collaborative_score = self._collaborative_prediction(user_id, drama_id)
+        popularity_score = float(self._popular_scores().get(drama_id, 5.0))
 
-        # Score collaboratif
-        collab_score = self._compute_collaborative_prediction(user_id, drama_id)
+        components = [content_score, popularity_score]
+        if collaborative_score > 0:
+            components.append(collaborative_score)
 
-        # Combinaison pondérée
-        predicted = self.alpha * content_score + (1 - self.alpha) * collab_score
-
-        # Bornage entre 0 et 10
+        predicted = self.alpha * content_score + (1 - self.alpha) * np.mean(components[1:])
         return float(np.clip(predicted, 0.0, 10.0))
 
-    def _recommend_for_user(
-        self,
-        user_id: int,
-        top_k: int,
-    ) -> list[RecommendationResult]:
-        """
-        Génère des recommandations personnalisées pour un utilisateur.
-
-        Étapes :
-          1. Identifier les utilisateurs similaires (NearestNeighbors).
-          2. Agréger les notes des utilisateurs similaires pour les dramas
-             non encore vus par l'utilisateur cible.
-          3. Compléter avec le score content-based basé sur les dramas
-             appréciés par l'utilisateur.
-          4. Combiner les scores et retourner le top_k.
-
-        Args:
-            user_id: ID de l'utilisateur.
-            top_k: Nombre de recommandations.
-
-        Returns:
-            Liste de RecommendationResult.
-        """
-        if self.user_item_matrix is None or self.collaborative_model is None:
-            raise RuntimeError("Modèle collaboratif non entraîné.")
-
-        # Vérification de l'existence de l'utilisateur
-        if user_id not in self.user_item_matrix.index:
-            # Utilisateur froid : fallback content-based sur les dramas populaires
-            logger.info(
-                "Utilisateur %d inconnu. Fallback sur les dramas populaires.",
-                user_id,
-            )
-            return self._recommend_popular(top_k)
-
-        # --- Étape 1 : Utilisateurs similaires ---
-        user_vector = self.user_item_matrix.loc[user_id].values.reshape(1, -1)
-        distances, indices = self.collaborative_model.kneighbors(user_vector)
-        similar_users = self.user_item_matrix.index[indices[0]]
-
-        # --- Étape 2 : Agrégation des notes des utilisateurs similaires ---
-        similar_ratings = self.user_item_matrix.loc[similar_users]
-        # Exclure les dramas déjà vus par l'utilisateur
-        seen_dramas = self.user_item_matrix.loc[user_id]
-        unseen_mask = seen_dramas == 0.0
-        collab_scores = similar_ratings.mean(axis=0)
-        collab_scores = collab_scores[unseen_mask]
-
-        # --- Étape 3 : Score content-based ---
-        # Basé sur les dramas les mieux notés par l'utilisateur
-        top_rated = seen_dramas[seen_dramas > 0].sort_values(ascending=False)
-        content_scores = pd.Series(0.0, index=collab_scores.index)
-
-        if len(top_rated) > 0 and self.content_embeddings is not None:
-            drama_ids = self.dramas_df["drama_id"].tolist()
-            for drama_id_val, rating in top_rated.head(5).items():
-                if drama_id_val in drama_ids:
-                    idx = drama_ids.index(drama_id_val)
-                    sims = self.content_embeddings @ self.content_embeddings[idx]
-                    for did in content_scores.index:
-                        if did in drama_ids:
-                            didx = drama_ids.index(did)
-                            content_scores[did] += sims[didx] * rating
-
-        # Normalisation
-        if content_scores.max() > 0:
-            content_scores = content_scores / content_scores.max() * 10
-
-        # --- Étape 4 : Combinaison ---
-        final_scores = self.alpha * content_scores + (1 - self.alpha) * collab_scores
-        final_scores = final_scores.sort_values(ascending=False).head(top_k)
-
-        results: list[RecommendationResult] = []
-        for did, score in final_scores.items():
-            drama_info = self._get_drama_info(int(did))
-            if drama_info:
-                results.append(
-                    RecommendationResult(
-                        drama_id=int(did),
-                        title=drama_info["title"],
-                        score=float(score),
-                        genres=drama_info.get("genres", []),
-                        synopsis=drama_info.get("synopsis", ""),
-                        rating=drama_info.get("rating", 0.0),
-                        year=drama_info.get("year", 0),
-                        episodes=drama_info.get("episodes", 0),
-                        poster=drama_info.get("poster", ""),
-                        reason="Recommended based on your history and similar users.",
-                    )
-                )
-
-        return results
-
-    def _recommend_similar_to_drama(
-        self,
-        drama_id: int,
-        top_k: int,
-    ) -> list[RecommendationResult]:
-        """
-        Recommande des dramas similaires à un drama donné.
-
-        Combine la similarité de contenu (embeddings) et la co-occurrence
-        dans les interactions des utilisateurs.
-
-        Args:
-            drama_id: ID du drama de référence.
-            top_k: Nombre de recommandations.
-
-        Returns:
-            Liste de RecommendationResult.
-        """
-        if self.dramas_df is None or self.content_embeddings is None:
-            raise RuntimeError("Modèle de contenu non entraîné.")
-
-        drama_ids = self.dramas_df["drama_id"].tolist()
-        if drama_id not in drama_ids:
-            raise ValueError(f"Drama {drama_id} introuvable dans le catalogue.")
-
-        idx = drama_ids.index(drama_id)
-
-        # --- Score content-based : similarité cosinus ---
-        content_sims = self.content_embeddings @ self.content_embeddings[idx]
-        content_scores = pd.Series(content_sims, index=drama_ids)
-        # Exclure le drama lui-même
-        content_scores = content_scores.drop(drama_id, errors="ignore")
-
-        # --- Score collaboratif : co-occurrence ---
-        collab_scores = pd.Series(0.0, index=drama_ids)
-        if self.interactions_df is not None:
-            users_who_watched = self.interactions_df[
-                self.interactions_df["drama_id"] == drama_id
-            ]["user_id"].unique()
-            for uid in users_who_watched:
-                other_dramas = self.interactions_df[
-                    (self.interactions_df["user_id"] == uid)
-                    & (self.interactions_df["drama_id"] != drama_id)
-                ]
-                for _, row in other_dramas.iterrows():
-                    did_val = int(row["drama_id"])
-                    if did_val in collab_scores.index:
-                        collab_scores[did_val] += row["rating"]
-
-        # Normalisation du score collaboratif
-        if collab_scores.max() > 0:
-            collab_scores = collab_scores / collab_scores.max() * 10
-
-        # --- Combinaison ---
-        final_scores = (
-            self.alpha * content_scores * 10 + (1 - self.alpha) * collab_scores
-        )
-        final_scores = final_scores.sort_values(ascending=False).head(top_k)
-
-        results: list[RecommendationResult] = []
-        for did, score in final_scores.items():
-            if score <= 0:
-                continue
-            drama_info = self._get_drama_info(int(did))
-            if drama_info:
-                results.append(
-                    RecommendationResult(
-                        drama_id=int(did),
-                        title=drama_info["title"],
-                        score=float(score),
-                        genres=drama_info.get("genres", []),
-                        synopsis=drama_info.get("synopsis", ""),
-                        rating=drama_info.get("rating", 0.0),
-                        year=drama_info.get("year", 0),
-                        episodes=drama_info.get("episodes", 0),
-                        poster=drama_info.get("poster", ""),
-                        reason="Similar to the selected drama (content and user preferences).",
-                    )
-                )
-
-        return results
-
-    def _recommend_popular(self, top_k: int) -> list[RecommendationResult]:
-        """
-        Fallback pour les utilisateurs froids : recommande les dramas
-        les plus populaires (note moyenne la plus élevée).
-
-        Args:
-            top_k: Nombre de recommandations.
-
-        Returns:
-            Liste de RecommendationResult.
-        """
-        if self.interactions_df is None or self.dramas_df is None:
-            return []
-
-        popular = (
-            self.interactions_df.groupby("drama_id")["rating"]
-            .mean()
-            .sort_values(ascending=False)
-            .head(top_k)
-        )
-
-        results: list[RecommendationResult] = []
-        for did, score in popular.items():
-            drama_info = self._get_drama_info(int(did))
-            if drama_info:
-                results.append(
-                    RecommendationResult(
-                        drama_id=int(did),
-                        title=drama_info["title"],
-                        score=float(score),
-                        genres=drama_info.get("genres", []),
-                        synopsis=drama_info.get("synopsis", ""),
-                        rating=drama_info.get("rating", 0.0),
-                        year=drama_info.get("year", 0),
-                        episodes=drama_info.get("episodes", 0),
-                        poster=drama_info.get("poster", ""),
-                        reason="Popular drama (high average rating).",
-                    )
-                )
-
-        return results
-
-    def _compute_content_prediction(self, user_id: int, drama_id: int) -> float:
-        """
-        Calcule le score prédit basé sur le contenu pour un couple
-        utilisateur-drama.
-
-        Args:
-            user_id: ID de l'utilisateur.
-            drama_id: ID du drama.
-
-        Returns:
-            Score entre 0 et 10.
-        """
-        if self.user_item_matrix is None or self.content_embeddings is None:
-            return 5.0  # Score neutre si pas de données
-
-        if user_id not in self.user_item_matrix.index:
-            return 5.0
-
-        user_ratings = self.user_item_matrix.loc[user_id]
-        rated_dramas = user_ratings[user_ratings > 0]
-
-        if len(rated_dramas) == 0:
-            return 5.0
-
-        drama_ids = self.dramas_df["drama_id"].tolist()
-        if drama_id not in drama_ids:
-            return 5.0
-
-        target_idx = drama_ids.index(drama_id)
-        target_emb = self.content_embeddings[target_idx]
-
-        weighted_sum = 0.0
-        weight_total = 0.0
-        for did, rating in rated_dramas.items():
-            if did in drama_ids:
-                didx = drama_ids.index(did)
-                sim = float(np.dot(target_emb, self.content_embeddings[didx]))
-                weighted_sum += sim * rating
-                weight_total += abs(sim)
-
-        if weight_total == 0:
-            return 5.0
-
-        return float(np.clip(weighted_sum / weight_total, 0.0, 10.0))
-
-    def _compute_collaborative_prediction(self, user_id: int, drama_id: int) -> float:
-        """
-        Calcule le score prédit basé sur le filtrage collaboratif.
-
-        Args:
-            user_id: ID de l'utilisateur.
-            drama_id: ID du drama.
-
-        Returns:
-            Score entre 0 et 10.
-        """
-        if self.user_item_matrix is None or self.collaborative_model is None:
-            return 5.0
-
-        if user_id not in self.user_item_matrix.index:
-            return 5.0
-
-        if drama_id not in self.user_item_matrix.columns:
-            return 5.0
-
-        user_vector = self.user_item_matrix.loc[user_id].values.reshape(1, -1)
-        distances, indices = self.collaborative_model.kneighbors(user_vector)
-        similar_users = self.user_item_matrix.index[indices[0]]
-
-        # Note moyenne donnée par les utilisateurs similaires pour ce drama
-        ratings_from_similar = []
-        for uid in similar_users:
-            rating = self.user_item_matrix.loc[uid, drama_id]
-            if rating > 0:
-                ratings_from_similar.append(rating)
-
-        if not ratings_from_similar:
-            return 5.0
-
-        return float(np.clip(np.mean(ratings_from_similar), 0.0, 10.0))
-
-    # ============================================================
-    # Sérialisation
-    # ============================================================
-
     def save(self, model_dir: Path | str = DEFAULT_MODEL_DIR) -> None:
-        """
-        Sérialise le modèle entraîné sur disque.
-
-        Fichiers générés :
-          - model.joblib : objet HybridRecommender (sans le modèle ST).
-          - content_embeddings.npy : matrice d'embeddings de contenu.
-          - metrics.json : métriques d'entraînement.
-
-        Args:
-            model_dir: Répertoire de sauvegarde.
-        """
         model_dir = Path(model_dir)
         model_dir.mkdir(parents=True, exist_ok=True)
-
-        # Sauvegarde du modèle (sans le modèle sentence-transformers)
         embedding_model_cache = self._embedding_model
-        self._embedding_model = None  # On ne sérialise pas le modèle ST
+        self._embedding_model = None
         joblib.dump(self, model_dir / "model.joblib", compress=3)
         self._embedding_model = embedding_model_cache
 
-        # Sauvegarde des embeddings
         if self.content_embeddings is not None:
-            np.save(
-                model_dir / "content_embeddings.npy",
-                self.content_embeddings,
-            )
+            np.save(model_dir / "content_embeddings.npy", self.content_embeddings)
 
-        # Sauvegarde des métriques
-        with open(model_dir / "metrics.json", "w", encoding="utf-8") as f:
-            json.dump(self.metrics.to_dict(), f, indent=2, ensure_ascii=False)
-
-        logger.info("Modèle sauvegardé dans %s", model_dir)
+        with open(model_dir / "metrics.json", "w", encoding="utf-8") as file:
+            json.dump(self.metrics.to_dict(), file, indent=2, ensure_ascii=False)
 
     @classmethod
     def load(cls, model_dir: Path | str = DEFAULT_MODEL_DIR) -> "HybridRecommender":
-        """
-        Charge un modèle sérialisé depuis le disque.
-
-        Args:
-            model_dir: Répertoire contenant les artefacts du modèle.
-
-        Returns:
-            Instance de HybridRecommender prête pour l'inférence.
-
-        Raises:
-            FileNotFoundError: Si les fichiers du modèle sont introuvables.
-        """
         model_dir = Path(model_dir)
         model_path = model_dir / "model.joblib"
-
         if not model_path.exists():
             raise FileNotFoundError(f"Fichier modèle introuvable : {model_path}")
 
         model = joblib.load(model_path)
-
-        # Chargement des embeddings
         emb_path = model_dir / "content_embeddings.npy"
         if emb_path.exists():
             model.content_embeddings = np.load(emb_path)
-
-        # Rechargement du modèle sentence-transformers (lazy)
         model._embedding_model = None
-
-        logger.info("Modèle chargé depuis %s", model_dir)
         return model
 
-    # ============================================================
-    # Utilitaires
-    # ============================================================
-
-    def _check_trained(self) -> None:
-        """Vérifie que le modèle a été entraîné."""
-        if not self._is_trained:
-            raise RuntimeError("Le modèle n'est pas entraîné. Appelez train() d'abord.")
-
-    def _get_drama_info(self, drama_id: int) -> dict[str, Any] | None:
-        """Récupère les métadonnées complètes d'un drama par son ID."""
-        if self.dramas_df is None:
-            return None
-        row = self.dramas_df[self.dramas_df["drama_id"] == drama_id]
-        if row.empty:
-            return None
-        row = row.iloc[0]
-
-        def _repair_text(value: str) -> str:
-            """Repair common mojibake artifacts when UTF-8 was decoded as Latin-1."""
-            if not value:
-                return value
-            try:
-                return value.encode("latin1").decode("utf-8")
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                return value
-
-        def _to_english_genre(label: str) -> str:
-            mapping = {
-                "comedie": "Comedy",
-                "drame": "Drama",
-                "mystere": "Mystery",
-                "historique": "Historical",
-                "fantastique": "Fantasy",
-                "science-fiction": "Science Fiction",
-                "surnaturel": "Supernatural",
-                "politique": "Political",
-                "juridique": "Legal",
-                "famille": "Family",
-                "amitie": "Friendship",
-                "tranche de vie": "Slice of Life",
-                "jeunesse": "Youth",
-                "ecole": "School",
-                "psychologique": "Psychological",
-                "militaire": "Military",
-                "espionnage": "Espionage",
-                "voyage dans le temps": "Time Travel",
-            }
-            key = (
-                label.strip()
-                .lower()
-                .replace("é", "e")
-                .replace("è", "e")
-                .replace("ê", "e")
-                .replace("ë", "e")
-                .replace("à", "a")
-                .replace("â", "a")
-                .replace("ä", "a")
-                .replace("î", "i")
-                .replace("ï", "i")
-                .replace("ô", "o")
-                .replace("ö", "o")
-                .replace("ù", "u")
-                .replace("û", "u")
-                .replace("ü", "u")
-                .replace("ç", "c")
-            )
-            return mapping.get(key, label.strip())
-
-        genres_value = row.get("genres", "")
-        parsed_genres: list[str]
-        if isinstance(genres_value, list):
-            parsed_genres = [str(g) for g in genres_value]
-        elif isinstance(genres_value, str):
-            text_value = genres_value.strip()
-            if not text_value:
-                parsed_genres = []
-            elif text_value.startswith("[") and text_value.endswith("]"):
-                try:
-                    decoded = json.loads(text_value)
-                    if isinstance(decoded, list):
-                        parsed_genres = [str(g) for g in decoded]
-                    else:
-                        parsed_genres = [str(decoded)]
-                except json.JSONDecodeError:
-                    parsed_genres = [
-                        g.strip() for g in text_value.split(",") if g.strip()
-                    ]
-            else:
-                parsed_genres = [g.strip() for g in text_value.split(",") if g.strip()]
-        else:
-            parsed_genres = [str(genres_value)] if genres_value else []
-
-        genres: list[str] = []
-        for genre in parsed_genres:
-            clean = _repair_text(genre.strip().strip("[]\"'"))
-            clean = _to_english_genre(clean)
-            if clean and clean not in genres:
-                genres.append(clean)
-
-        title = _repair_text(str(row.get("title", "Unknown")))
-        synopsis = _repair_text(str(row.get("synopsis", ""))) if row.get("synopsis") else ""
-
-        # Extract year from date_diffusion
-        year = 0
-        date_diffusion = row.get("date_diffusion")
-        if date_diffusion:
-            try:
-                if isinstance(date_diffusion, str):
-                    year = int(date_diffusion.split("-")[0])
-                elif hasattr(date_diffusion, "year"):
-                    year = date_diffusion.year
-            except (ValueError, AttributeError, IndexError):
-                pass
-
-        rating = float(row.get("note_moyenne", 0)) if row.get("note_moyenne") else 0.0
-        episodes = int(row.get("nb_episodes", 0)) if row.get("nb_episodes") else 0
-
-        # Try to get poster URL from various possible field names
-        poster = ""
-        for field in ["poster", "poster_url", "image_url", "affiche"]:
-            if field in row and row[field]:
-                poster = str(row[field]).strip()
-                if poster and poster.lower() != "none" and poster != "nan":
-                    break
-
-        # If no poster found, use placeholder
-        if not poster or poster.lower() == "none":
-            poster = "https://via.placeholder.com/400x600?text=No+Poster"
-
-        return {
-            "drama_id": drama_id,
-            "title": title,
-            "genres": genres,
-            "synopsis": synopsis,
-            "rating": rating,
-            "year": year,
-            "episodes": episodes,
-            "poster": poster,
-        }
-
     def get_model_info(self) -> dict[str, Any]:
-        """
-        Retourne les informations sur le modèle pour le endpoint /health.
-
-        Returns:
-            Dictionnaire avec les métadonnées du modèle.
-        """
         return {
             "model_type": "HybridRecommender",
             "alpha": self.alpha,
@@ -966,22 +351,644 @@ class HybridRecommender:
             "metrics": self.metrics.to_dict() if self._is_trained else None,
         }
 
+    def _validate_training_data(
+        self,
+        dramas_df: pd.DataFrame,
+        interactions_df: pd.DataFrame,
+    ) -> None:
+        required_drama_cols = {"drama_id", "title", "synopsis", "genres"}
+        required_interaction_cols = {"user_id", "drama_id", "rating"}
+        if dramas_df.empty:
+            raise ValueError("Le DataFrame des dramas est vide.")
+        if interactions_df.empty:
+            raise ValueError("Le DataFrame des interactions est vide.")
 
-# ============================================================
-# Fallback TF-IDF (si sentence-transformers indisponible)
-# ============================================================
+        missing_drama = required_drama_cols - set(dramas_df.columns)
+        missing_interaction = required_interaction_cols - set(interactions_df.columns)
+        if missing_drama:
+            raise ValueError(f"Colonnes manquantes dans dramas_df : {missing_drama}")
+        if missing_interaction:
+            raise ValueError(f"Colonnes manquantes dans interactions_df : {missing_interaction}")
+        if not pd.api.types.is_numeric_dtype(interactions_df["rating"]):
+            raise ValueError("La colonne 'rating' doit être numérique.")
+
+    def _prepare_dramas_dataframe(self, dramas_df: pd.DataFrame) -> pd.DataFrame:
+        for column, default_value in {
+            "synopsis": "",
+            "genres": "",
+            "principal_actors": "",
+            "viewer_consensus": "",
+            "sentiment_summary": "",
+            "ending_type": "unknown",
+            "poster": "",
+        }.items():
+            if column not in dramas_df.columns:
+                dramas_df[column] = default_value
+            dramas_df[column] = dramas_df[column].fillna(default_value)
+
+        if "sentiment_score" not in dramas_df.columns:
+            dramas_df["sentiment_score"] = 0.0
+        dramas_df["sentiment_score"] = pd.to_numeric(
+            dramas_df["sentiment_score"], errors="coerce"
+        ).fillna(0.0)
+
+        if "note_moyenne" not in dramas_df.columns:
+            dramas_df["note_moyenne"] = 0.0
+        dramas_df["note_moyenne"] = pd.to_numeric(
+            dramas_df["note_moyenne"], errors="coerce"
+        ).fillna(0.0)
+
+        if "nb_episodes" not in dramas_df.columns:
+            dramas_df["nb_episodes"] = 0
+        dramas_df["nb_episodes"] = pd.to_numeric(
+            dramas_df["nb_episodes"], errors="coerce"
+        ).fillna(0).astype(int)
+
+        dramas_df["drama_id"] = pd.to_numeric(dramas_df["drama_id"], errors="coerce").astype(int)
+        dramas_df["title"] = dramas_df["title"].fillna("").astype(str)
+        dramas_df["genre_list"] = dramas_df["genres"].apply(self._parse_list)
+        dramas_df["actor_list"] = dramas_df["principal_actors"].apply(self._parse_list)
+        dramas_df["genre_norm_set"] = dramas_df["genre_list"].apply(
+            lambda items: {self._normalize_token(item) for item in items if item}
+        )
+        dramas_df["actor_norm_set"] = dramas_df["actor_list"].apply(
+            lambda items: {self._normalize_token(item) for item in items if item}
+        )
+        dramas_df["ending_phrase"] = dramas_df.apply(self._build_ending_phrase, axis=1)
+        dramas_df["content_text"] = dramas_df.apply(self._build_content_text, axis=1)
+        self._drama_id_to_index = {
+            int(drama_id): index
+            for index, drama_id in enumerate(dramas_df["drama_id"].tolist())
+        }
+        return dramas_df
+
+    def _load_embedding_model(self) -> None:
+        if self._embedding_model is not None:
+            return
+        if "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST") or os.getenv("DISABLE_SENTENCE_TRANSFORMERS") == "1":
+            self._embedding_model = _TFIDFFallback()
+            return
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            self._embedding_model = SentenceTransformer(self.embedding_model_name)
+        except Exception:
+            logger.warning("sentence-transformers indisponible, fallback TF-IDF activé.")
+            self._embedding_model = _TFIDFFallback()
+
+    def _generate_content_embeddings(self) -> None:
+        if self.dramas_df is None:
+            raise RuntimeError("dramas_df n'est pas initialisé.")
+        texts = self.dramas_df["content_text"].astype(str).tolist()
+        embeddings = self._embedding_model.encode(
+            texts,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        self.content_embeddings = normalize(embeddings, norm="l2")
+
+    def _build_content_clusters(self) -> None:
+        if self.dramas_df is None or self.content_embeddings is None:
+            return
+
+        num_dramas = len(self.dramas_df)
+        if num_dramas < 2:
+            only_id = int(self.dramas_df.iloc[0]["drama_id"])
+            self.drama_clusters = {only_id: 0}
+            self.cluster_labels = {0: "drama pick"}
+            return
+
+        num_clusters = max(2, min(8, int(np.sqrt(num_dramas))))
+        num_clusters = min(num_clusters, num_dramas)
+        features = np.hstack(
+            [
+                self.content_embeddings,
+                self.dramas_df["sentiment_score"].to_numpy(dtype=float).reshape(-1, 1),
+            ]
+        )
+        clusterer = KMeans(
+            n_clusters=num_clusters,
+            n_init=10,
+            random_state=RANDOM_STATE,
+        )
+        labels = clusterer.fit_predict(features)
+        self.drama_clusters = {
+            int(drama_id): int(label)
+            for drama_id, label in zip(self.dramas_df["drama_id"].tolist(), labels)
+        }
+
+        vectorizer = TfidfVectorizer(
+            max_features=400,
+            stop_words="english",
+            ngram_range=(1, 2),
+        )
+        tfidf_matrix = vectorizer.fit_transform(self.dramas_df["content_text"].astype(str))
+        feature_names = np.array(vectorizer.get_feature_names_out())
+
+        self.cluster_labels = {}
+        for cluster_id in sorted(set(labels)):
+            cluster_rows = np.where(labels == cluster_id)[0]
+            cluster_slice = tfidf_matrix[cluster_rows]
+            mean_scores = np.asarray(cluster_slice.mean(axis=0)).ravel()
+            ranked_terms = feature_names[np.argsort(mean_scores)[::-1]]
+            clean_terms = [
+                term.replace("_", " ")
+                for term in ranked_terms
+                if term not in _CLUSTER_STOPWORDS
+                and not any(stop in term.split() for stop in _CLUSTER_STOPWORDS)
+            ]
+            label = ", ".join(clean_terms[:3]).strip(", ")
+            self.cluster_labels[int(cluster_id)] = label or "similar vibe"
+
+    def _build_user_item_matrix(self) -> None:
+        if self.interactions_df is None:
+            raise RuntimeError("interactions_df n'est pas initialisé.")
+        aggregated = (
+            self.interactions_df.groupby(["user_id", "drama_id"], as_index=False)["rating"].mean()
+        )
+        self.user_item_matrix = aggregated.pivot_table(
+            index="user_id",
+            columns="drama_id",
+            values="rating",
+            fill_value=0.0,
+        )
+
+    def _train_collaborative_model(self) -> None:
+        if self.user_item_matrix is None:
+            raise RuntimeError("user_item_matrix n'est pas construit.")
+        self.collaborative_model = NearestNeighbors(
+            n_neighbors=min(20, self.user_item_matrix.shape[0]),
+            metric="cosine",
+            algorithm="brute",
+        )
+        self.collaborative_model.fit(self.user_item_matrix.values)
+
+    def _score_for_user(
+        self,
+        user_id: int,
+        extra_positive_ids: list[int],
+        extra_negative_ids: list[int],
+    ) -> tuple[pd.Series, set[int], list[int]]:
+        if self.dramas_df is None:
+            raise RuntimeError("Catalogue indisponible.")
+
+        base_scores = self._popular_scores()
+        liked_ids: list[int] = []
+        exclude_ids: set[int] = set(extra_negative_ids)
+
+        if self.user_item_matrix is not None and user_id in self.user_item_matrix.index:
+            user_vector = self.user_item_matrix.loc[user_id].values.reshape(1, -1)
+            seen_dramas = self.user_item_matrix.loc[user_id]
+            seen_ids = [int(drama_id) for drama_id, rating in seen_dramas.items() if rating > 0]
+            exclude_ids.update(seen_ids)
+
+            rated = seen_dramas[seen_dramas > 0].sort_values(ascending=False)
+            liked_ids.extend([int(drama_id) for drama_id in rated.head(5).index.tolist()])
+
+            collaborative_scores = self._collaborative_scores_for_user_vector(
+                user_vector=user_vector,
+                exclude_ids=exclude_ids,
+            )
+            content_scores = self._seed_similarity_scores(
+                seed_ids=seen_ids + extra_positive_ids,
+                seed_weights=[
+                    float(seen_dramas.get(drama_id, 8.0)) for drama_id in seen_ids
+                ]
+                + [9.5 for _ in extra_positive_ids],
+            )
+            base_scores = (
+                self.alpha * content_scores
+                + (1 - self.alpha) * collaborative_scores
+                + 0.15 * self._popular_scores()
+            )
+        else:
+            liked_ids.extend(extra_positive_ids)
+            if extra_positive_ids:
+                base_scores = 0.7 * self._seed_similarity_scores(extra_positive_ids) + 0.3 * base_scores
+
+        if extra_positive_ids:
+            exclude_ids.update(extra_positive_ids)
+            liked_ids = self._unique_ints(liked_ids + extra_positive_ids)
+        return base_scores, exclude_ids, liked_ids
+
+    def _score_for_drama(
+        self,
+        drama_id: int,
+        extra_positive_ids: list[int],
+        extra_negative_ids: list[int],
+    ) -> tuple[pd.Series, set[int], list[int]]:
+        if drama_id not in self._drama_id_to_index:
+            raise ValueError(f"Drama {drama_id} introuvable dans le catalogue.")
+
+        seed_scores = self._seed_similarity_scores([drama_id] + extra_positive_ids)
+        co_occurrence = self._co_occurrence_scores(drama_id)
+        base_scores = self.alpha * seed_scores + (1 - self.alpha) * co_occurrence + 0.15 * self._popular_scores()
+        exclude_ids = {drama_id, *extra_positive_ids, *extra_negative_ids}
+        liked_ids = self._unique_ints([drama_id] + extra_positive_ids)
+        return base_scores, exclude_ids, liked_ids
+
+    def _collaborative_scores_for_user_vector(
+        self,
+        user_vector: np.ndarray,
+        exclude_ids: set[int],
+    ) -> pd.Series:
+        if self.user_item_matrix is None or self.collaborative_model is None:
+            return self._popular_scores()
+
+        distances, indices = self.collaborative_model.kneighbors(user_vector)
+        similar_users = self.user_item_matrix.iloc[indices[0]]
+        weights = 1.0 - distances[0]
+        weights = np.where(weights <= 0, 0.05, weights)
+        weighted_scores = np.average(similar_users.values, axis=0, weights=weights)
+        series = pd.Series(weighted_scores, index=self.user_item_matrix.columns, dtype=float)
+        series = series.drop(labels=list(exclude_ids), errors="ignore")
+        return self._scale_series(series)
+
+    def _co_occurrence_scores(self, drama_id: int) -> pd.Series:
+        if self.interactions_df is None:
+            return self._popular_scores()
+        users = self.interactions_df[self.interactions_df["drama_id"] == drama_id]["user_id"].unique()
+        if len(users) == 0:
+            return self._popular_scores()
+        related = self.interactions_df[
+            (self.interactions_df["user_id"].isin(users))
+            & (self.interactions_df["drama_id"] != drama_id)
+        ]
+        if related.empty:
+            return self._popular_scores()
+        scores = related.groupby("drama_id")["rating"].mean()
+        return self._scale_series(scores).reindex(self.dramas_df["drama_id"]).fillna(0.0)
+
+    def _seed_similarity_scores(
+        self,
+        seed_ids: list[int],
+        seed_weights: list[float] | None = None,
+    ) -> pd.Series:
+        if self.content_embeddings is None or self.dramas_df is None:
+            return self._popular_scores()
+
+        valid_seed_ids = [seed_id for seed_id in seed_ids if seed_id in self._drama_id_to_index]
+        if not valid_seed_ids:
+            return self._popular_scores()
+
+        seed_indices = [self._drama_id_to_index[seed_id] for seed_id in valid_seed_ids]
+        candidate_sims = self.content_embeddings @ self.content_embeddings[seed_indices].T
+        weights = np.array(
+            seed_weights[: len(valid_seed_ids)] if seed_weights else [1.0] * len(valid_seed_ids),
+            dtype=float,
+        )
+        weighted_scores = candidate_sims @ weights / np.sum(np.abs(weights))
+        series = pd.Series(weighted_scores, index=self.dramas_df["drama_id"], dtype=float)
+        return self._scale_series(series)
+
+    def _popular_scores(self) -> pd.Series:
+        if self.dramas_df is None:
+            return pd.Series(dtype=float)
+        if self.interactions_df is not None and not self.interactions_df.empty:
+            series = self.interactions_df.groupby("drama_id")["rating"].mean()
+        else:
+            series = self.dramas_df.set_index("drama_id")["note_moyenne"]
+        return self._scale_series(series).reindex(self.dramas_df["drama_id"]).fillna(0.0)
+
+    def _query_similarity_scores(self, query_text: str) -> pd.Series:
+        if not query_text or self.content_embeddings is None or self.dramas_df is None:
+            return pd.Series(0.0, index=self.dramas_df["drama_id"] if self.dramas_df is not None else [])
+        query_embedding = self._embedding_model.encode(
+            [query_text],
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        query_embedding = normalize(query_embedding, norm="l2")[0]
+        scores = self.content_embeddings @ query_embedding
+        return self._scale_series(pd.Series(scores, index=self.dramas_df["drama_id"], dtype=float))
+
+    def _apply_preference_adjustments(
+        self,
+        scores: pd.Series,
+        genre_mask: pd.Series,
+        actor_mask: pd.Series,
+        top_k: int,
+    ) -> pd.Series:
+        adjusted = scores.copy()
+        if not genre_mask.empty and genre_mask.any():
+            aligned_genre_mask = genre_mask.reindex(adjusted.index).fillna(False)
+            adjusted.loc[aligned_genre_mask] += 1.1
+            if int(genre_mask.sum()) >= min(top_k, 3):
+                # Re-align after the potential index shrink below so the next
+                # block (actor_mask) never sees stale labels.
+                adjusted = adjusted[aligned_genre_mask]
+        if not actor_mask.empty and actor_mask.any():
+            # Recompute against the CURRENT adjusted.index (which may have
+            # shrunk from the genre filter above) to avoid a KeyError when
+            # some actor-matching drama_ids were filtered out by genre.
+            aligned_actor_mask = actor_mask.reindex(adjusted.index).fillna(False)
+            adjusted.loc[aligned_actor_mask] += 1.2
+            if int(actor_mask.sum()) >= min(top_k, 2):
+                adjusted = adjusted[aligned_actor_mask]
+        return adjusted
+
+    def _happy_ending_mask(self, drama_ids: list[int]) -> pd.Series:
+        rows = self.dramas_df.set_index("drama_id").reindex(drama_ids)
+        mask = rows["ending_type"].astype(str).str.lower().eq("happy")
+        mask.index = drama_ids
+        return mask.fillna(False)
+
+    def _match_mask(
+        self,
+        drama_ids: list[int],
+        requested_values: list[str] | None,
+        field_type: str,
+    ) -> pd.Series:
+        if self.dramas_df is None or not requested_values:
+            return pd.Series(False, index=drama_ids, dtype=bool)
+
+        normalized_requested = {
+            self._normalize_token(value)
+            for value in requested_values
+            if isinstance(value, str) and value.strip()
+        }
+        if not normalized_requested:
+            return pd.Series(False, index=drama_ids, dtype=bool)
+
+        field_name = "genre_norm_set" if field_type == "genre" else "actor_norm_set"
+        rows = self.dramas_df.set_index("drama_id").reindex(drama_ids)
+        mask = rows[field_name].apply(
+            lambda available: bool(set(available or set()) & normalized_requested)
+        )
+        mask.index = drama_ids
+        return mask.fillna(False)
+
+    def _build_explanation(
+        self,
+        drama_id: int,
+        mode: str,
+        liked_ids: list[int],
+        requested_genres: list[str],
+        requested_actors: list[str],
+        happy_ending_only: bool,
+        query_text: str,
+        genre_match: bool,
+        actor_match: bool,
+        query_score: float,
+    ) -> str:
+        info = self._get_drama_info(drama_id) or {}
+        parts: list[str] = []
+
+        similar_titles = self._top_similar_seed_titles(drama_id, liked_ids)
+        if similar_titles:
+            parts.append(f"Because you liked {', '.join(similar_titles)}")
+        elif mode == "item" and liked_ids:
+            seed_title = self._get_drama_title(liked_ids[0])
+            if seed_title:
+                parts.append(f"Close in style to {seed_title}")
+
+        if genre_match and requested_genres:
+            parts.append(f"matches your {requested_genres[0]} preference")
+        if actor_match and requested_actors:
+            parts.append(f"features {requested_actors[0]} or a similar cast vibe")
+        if happy_ending_only and str(info.get("ending_type", "")).lower() == "happy":
+            parts.append("keeps a happy ending")
+        if query_text and query_score > 4.0:
+            parts.append("fits the mood and tone you asked for")
+
+        cluster_label = info.get("cluster_label", "")
+        if cluster_label:
+            parts.append(f"shares a {cluster_label} vibe")
+
+        if not parts:
+            parts.append("Strong overall match based on content and audience preferences")
+        return ". ".join(parts[:3]) + "."
+
+    def _top_similar_seed_titles(self, drama_id: int, seed_ids: list[int]) -> list[str]:
+        if self.content_embeddings is None or drama_id not in self._drama_id_to_index:
+            return []
+        target_idx = self._drama_id_to_index[drama_id]
+        ranked: list[tuple[float, str]] = []
+        for seed_id in self._unique_ints(seed_ids):
+            if seed_id == drama_id or seed_id not in self._drama_id_to_index:
+                continue
+            seed_idx = self._drama_id_to_index[seed_id]
+            similarity = float(np.dot(self.content_embeddings[target_idx], self.content_embeddings[seed_idx]))
+            title = self._get_drama_title(seed_id)
+            if title:
+                ranked.append((similarity, title))
+        ranked.sort(reverse=True)
+        return [title for _, title in ranked[:2]]
+
+    def _content_prediction(self, user_id: int, drama_id: int) -> float:
+        if self.user_item_matrix is None or self.content_embeddings is None:
+            return float(self._popular_scores().get(drama_id, 5.0))
+        if user_id not in self.user_item_matrix.index:
+            return float(self._popular_scores().get(drama_id, 5.0))
+
+        user_ratings = self.user_item_matrix.loc[user_id]
+        rated = user_ratings[user_ratings > 0]
+        if rated.empty:
+            return float(self._popular_scores().get(drama_id, 5.0))
+
+        target_idx = self._drama_id_to_index[drama_id]
+        sims: list[float] = []
+        weights: list[float] = []
+        for seen_id, rating in rated.items():
+            if int(seen_id) not in self._drama_id_to_index:
+                continue
+            seen_idx = self._drama_id_to_index[int(seen_id)]
+            sims.append(float(np.dot(self.content_embeddings[target_idx], self.content_embeddings[seen_idx])))
+            weights.append(float(rating))
+        if not sims:
+            return float(self._popular_scores().get(drama_id, 5.0))
+
+        value = np.average(np.array(sims) * 10.0, weights=weights)
+        return float(np.clip(value, 0.0, 10.0))
+
+    def _collaborative_prediction(self, user_id: int, drama_id: int) -> float:
+        if self.user_item_matrix is None or self.collaborative_model is None:
+            return 0.0
+        if user_id not in self.user_item_matrix.index or drama_id not in self.user_item_matrix.columns:
+            return 0.0
+
+        user_vector = self.user_item_matrix.loc[user_id].values.reshape(1, -1)
+        distances, indices = self.collaborative_model.kneighbors(user_vector)
+        similar_users = self.user_item_matrix.iloc[indices[0]]
+        ratings = similar_users[drama_id]
+        ratings = ratings[ratings > 0]
+        if ratings.empty:
+            return 0.0
+        return float(np.clip(ratings.mean(), 0.0, 10.0))
+
+    def _check_trained(self) -> None:
+        if not self._is_trained:
+            raise RuntimeError("Le modèle n'est pas entraîné. Appelez train() d'abord.")
+
+    def _get_drama_title(self, drama_id: int) -> str:
+        info = self._get_drama_info(drama_id)
+        return info["title"] if info else ""
+
+    def _get_drama_info(self, drama_id: int) -> dict[str, Any] | None:
+        if self.dramas_df is None:
+            return None
+        row = self.dramas_df[self.dramas_df["drama_id"] == drama_id]
+        if row.empty:
+            return None
+        item = row.iloc[0]
+
+        year = 0
+        date_value = item.get("date_diffusion")
+        if isinstance(date_value, str) and date_value:
+            try:
+                year = int(date_value.split("-")[0])
+            except (ValueError, IndexError):
+                year = 0
+        elif hasattr(date_value, "year"):
+            try:
+                year = int(date_value.year)
+            except Exception:
+                year = 0
+
+        poster = str(item.get("poster", "") or item.get("poster_url", "") or "").strip()
+        if not poster or poster.lower() in {"none", "nan"}:
+            poster = "https://via.placeholder.com/400x600?text=No+Poster"
+
+        cluster_id = self.drama_clusters.get(drama_id)
+        cluster_label = self.cluster_labels.get(cluster_id, "") if cluster_id is not None else ""
+
+        return {
+            "drama_id": drama_id,
+            "title": str(item.get("title", "Unknown")),
+            "genres": list(item.get("genre_list", self._parse_list(item.get("genres", "")))),
+            "synopsis": str(item.get("synopsis", "")),
+            "rating": float(item.get("note_moyenne", 0.0) or 0.0),
+            "year": year,
+            "episodes": int(item.get("nb_episodes", 0) or 0),
+            "poster": poster,
+            "ending_type": str(item.get("ending_type", "unknown")),
+            "sentiment_score": float(item.get("sentiment_score", 0.0) or 0.0),
+            "viewer_consensus": str(item.get("viewer_consensus", "")),
+            "principal_actors": list(
+                item.get("actor_list", self._parse_list(item.get("principal_actors", "")))
+            ),
+            "cluster_label": cluster_label,
+        }
+
+    def _build_content_text(self, row: pd.Series) -> str:
+        title = str(row.get("title", "")).strip()
+        synopsis = str(row.get("synopsis", "")).strip()
+        genres = ", ".join(self._parse_list(row.get("genres", "")))
+        actors = ", ".join(self._parse_list(row.get("principal_actors", "")))
+        ending_phrase = self._build_ending_phrase(row)
+        consensus = str(row.get("viewer_consensus", "")).strip()
+        summary = str(row.get("sentiment_summary", "")).strip()
+        parts = [
+            title,
+            synopsis,
+            f"Genres: {genres}" if genres else "",
+            f"Actors: {actors}" if actors else "",
+            ending_phrase,
+            summary,
+            consensus,
+        ]
+        return " ".join(part for part in parts if part)
+
+    def _build_ending_phrase(self, row: pd.Series) -> str:
+        ending_type = str(row.get("ending_type", "unknown") or "unknown").strip().lower()
+        sentiment_score = float(row.get("sentiment_score", 0.0) or 0.0)
+        if ending_type == "happy":
+            tone = "uplifting" if sentiment_score >= 0.35 else "gentle"
+            return f"Ending: happy and {tone}."
+        if ending_type == "sad":
+            return "Ending: sad and emotional."
+        if ending_type == "bittersweet":
+            return "Ending: bittersweet and reflective."
+        if sentiment_score >= 0.45:
+            return "Tone: optimistic and emotionally rewarding."
+        if sentiment_score <= -0.2:
+            return "Tone: darker and emotionally intense."
+        return "Tone: balanced and character-driven."
+
+    @staticmethod
+    def _parse_list(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            raw_items = value
+        elif isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("[") and stripped.endswith("]"):
+                try:
+                    decoded = json.loads(stripped)
+                    raw_items = decoded if isinstance(decoded, list) else [decoded]
+                except json.JSONDecodeError:
+                    raw_items = stripped.split(",")
+            else:
+                raw_items = stripped.split(",")
+        else:
+            raw_items = [value]
+
+        items: list[str] = []
+        for item in raw_items:
+            clean = str(item).strip().strip("[]\"'")
+            if clean and clean.lower() != "nan" and clean not in items:
+                items.append(clean)
+        return items
+
+    @staticmethod
+    def _normalize_token(value: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+        return re.sub(r"\s+", " ", normalized)
+
+    @staticmethod
+    def _scale_series(series: pd.Series) -> pd.Series:
+        if series.empty:
+            return series.astype(float)
+        series = series.astype(float).fillna(0.0)
+        minimum = float(series.min())
+        maximum = float(series.max())
+        if maximum - minimum < 1e-9:
+            return pd.Series(
+                np.where(series > 0, 10.0, 0.0),
+                index=series.index,
+                dtype=float,
+            )
+        return ((series - minimum) / (maximum - minimum) * 10.0).astype(float)
+
+    @staticmethod
+    def _unique_ints(values: list[Any]) -> list[int]:
+        unique: list[int] = []
+        for value in values:
+            try:
+                integer = int(value)
+            except (TypeError, ValueError):
+                continue
+            if integer not in unique:
+                unique.append(integer)
+        return unique
+
+    @staticmethod
+    def _build_query_text(
+        mood: str | None,
+        text: str | None,
+        genres: list[str] | None,
+        actor_names: list[str] | None,
+        happy_ending_only: bool | None,
+    ) -> str:
+        parts: list[str] = []
+        if mood:
+            parts.append(f"Mood: {mood}")
+        if text:
+            parts.append(text.strip())
+        if genres:
+            parts.append(f"Preferred genres: {', '.join(genres)}")
+        if actor_names:
+            parts.append(f"Preferred actors: {', '.join(actor_names)}")
+        if happy_ending_only:
+            parts.append("Needs a happy ending")
+        return " ".join(part for part in parts if part)
 
 
 class _TFIDFFallback:
-    """
-    Fallback utilisant TF-IDF (scikit-learn) si sentence-transformers
-    n'est pas installé. Permet au modèle de fonctionner dans des
-    environnements contraints (CI, tests unitaires).
-    """
-
     def __init__(self) -> None:
-        from sklearn.feature_extraction.text import TfidfVectorizer
-
         self.vectorizer = TfidfVectorizer(
             max_features=384,
             stop_words="english",
@@ -995,7 +1002,7 @@ class _TFIDFFallback:
         show_progress_bar: bool = False,
         convert_to_numpy: bool = True,
     ) -> np.ndarray:
-        """Encode les textes en embeddings TF-IDF."""
+        del show_progress_bar, convert_to_numpy
         if not self._is_fitted:
             embeddings = self.vectorizer.fit_transform(texts).toarray()
             self._is_fitted = True
@@ -1004,33 +1011,11 @@ class _TFIDFFallback:
         return embeddings.astype(np.float32)
 
 
-# ============================================================
-# Chargement des données réelles depuis l'étape 1
-# ============================================================
-
-
 def load_real_data(
     db_url: str | None = None,
     num_users: int = 50,
     avg_interactions_per_user: int = 8,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Charge les données réelles de l'étape 1 pour l'entraînement.
-
-    Le catalogue de K-Dramas est lu depuis la base PostgreSQL de l'étape 1
-    (vraies données collectées, 915 K-Dramas). Les notes individuelles par
-    utilisateur sont simulées à partir des notes moyennes réelles.
-
-    Args:
-        db_url: URL de connexion PostgreSQL. Si None, lit depuis les
-                variables d'environnement (SUPABASE_DB_URL ou DATABASE_URL).
-        num_users: Nombre d'utilisateurs simulés pour le filtrage
-                   collaboratif.
-        avg_interactions_per_user: Nombre moyen de notes par utilisateur.
-
-    Returns:
-        Tuple (dramas_df, interactions_df) au format attendu par train().
-    """
     from data_loader import load_real_data as _load
 
     return _load(
@@ -1038,36 +1023,3 @@ def load_real_data(
         num_users=num_users,
         avg_interactions_per_user=avg_interactions_per_user,
     )
-
-
-# ============================================================
-# Point d'entrée pour l'entraînement en CLI
-# ============================================================
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
-    logger.info("=== Entraînement du modèle de recommandation K-Drama ===")
-
-    # Chargement des données réelles depuis l'étape 1
-    dramas, interactions = load_real_data(num_users=50)
-
-    # Entraînement
-    model = HybridRecommender(alpha=0.6)
-    metrics = model.train(dramas, interactions)
-
-    # Sauvegarde
-    model.save()
-
-    # Test de recommandation
-    results = model.recommend(user_id=1, top_k=5)
-    print("\n=== Recommandations pour l'utilisateur 1 ===")
-    for r in results:
-        print(f"  - {r.title} (score: {r.score:.2f}) — {r.reason}")
-
-    # Test de prédiction
-    first_drama_id = int(dramas["drama_id"].iloc[0])
-    pred = model.predict(user_id=1, drama_id=first_drama_id)
-    print(f"\n=== Prédiction pour user 1, drama {first_drama_id} : {pred:.2f} ===")
-
-    print("\n=== Entraînement terminé avec succès ===")

@@ -12,6 +12,7 @@ interface DramaCardProps {
   predictedRating?: number;
   score?: number;
   isWatched?: boolean;
+  explanation?: string;
 }
 
 export function DramaCard({
@@ -24,6 +25,7 @@ export function DramaCard({
   predictedRating,
   score,
   isWatched = false,
+  explanation,
 }: DramaCardProps) {
   const handleCardClick = () => {
     if (onViewDetails) {
@@ -97,6 +99,11 @@ export function DramaCard({
             </span>
           ))}
         </div>
+        {explanation && (
+          <p className="text-[11px] text-gray-400 mt-2 line-clamp-2 italic">
+            {explanation}
+          </p>
+        )}
       </div>
     </div>
   );

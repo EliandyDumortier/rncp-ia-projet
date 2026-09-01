@@ -31,6 +31,7 @@ services:
     volumes:
       - kdrama-db-data:/var/lib/postgresql/data
       - ./dossier_projet/etape1/src/database_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./dossier_projet/etape1/src/preferences_favoris_schema.sql:/docker-entrypoint-initdb.d/02-preferences-favoris.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kdrama -d kdrama"]
       interval: 10s
@@ -81,10 +82,14 @@ services:
       - "8001:8001"
     environment:
       JWT_SECRET_KEY: ${JWT_SECRET:-change-me-in-production}
+      DATABASE_URL: postgresql+psycopg2://kdrama:${DB_PASSWORD:-kdrama_dev_2026}@db:5432/kdrama
       API_HOST: "0.0.0.0"
       API_PORT: "8001"
       USER_PASSWORD: "user123"
       ADMIN_PASSWORD: "admin123"
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s

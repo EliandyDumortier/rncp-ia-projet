@@ -6,7 +6,6 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-# Ajout du répertoire src au path pour les imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import data_loader  # noqa: E402
@@ -26,10 +25,14 @@ class _FakeResult:
 
 class _FakeConnection:
     def __init__(
-        self, result: _FakeResult | None = None, exc: Exception | None = None
+        self,
+        result: _FakeResult | None = None,
+        exc: Exception | None = None,
+        query_results: dict[str, _FakeResult] | None = None,
     ) -> None:
         self._result = result
         self._exc = exc
+        self._query_results = query_results or {}
 
     def __enter__(self) -> "_FakeConnection":
         return self
@@ -37,11 +40,17 @@ class _FakeConnection:
     def __exit__(self, exc_type, exc, tb) -> None:  # type: ignore[no-untyped-def]
         return None
 
-    def execute(self, _query):  # type: ignore[no-untyped-def]
+    def execute(self, query, *args, **kwargs):  # type: ignore[no-untyped-def]
+        del args, kwargs
         if self._exc is not None:
             raise self._exc
-        assert self._result is not None
-        return self._result
+        sql = str(query).lower()
+        for marker, result in self._query_results.items():
+            if marker.lower() in sql:
+                return result
+        if self._result is not None:
+            return self._result
+        raise AssertionError(f"No fake result configured for query: {sql}")
 
 
 class _FakeEngine:
@@ -79,18 +88,47 @@ def test_get_database_url_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -
 
 def test_load_dramas_from_etape1_success(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = [
-        (1, "Drama A", None, None, 8.5, 100, "2020-01-01", "SBS", "Actor A", "tag1"),
         (
-            2,
+            101,
+            "Drama A",
+            None,
+            None,
+            8.5,
+            100,
+            "2020-01-01",
+            16,
+            1,
+            "SBS",
+            "Actor A",
+            "tag1",
+            "poster-a",
+            "happy",
+            0.7,
+            "comments",
+            "consensus",
+            "summary",
+            "Actor A",
+        ),
+        (
+            102,
             "Drama B",
             "Synopsis B",
             "Action",
             7.9,
             80,
             "2021-01-01",
+            12,
+            1,
             "tvN",
             "Actor B",
             "tag2",
+            "poster-b",
+            "sad",
+            -0.2,
+            "",
+            "",
+            "",
+            "Actor B",
         ),
     ]
     cols = [
@@ -101,9 +139,18 @@ def test_load_dramas_from_etape1_success(monkeypatch: pytest.MonkeyPatch) -> Non
         "note_moyenne",
         "nb_votes",
         "date_diffusion",
+        "nb_episodes",
+        "nb_saisons",
         "reseaux_diffusion",
         "acteurs",
         "tags",
+        "poster",
+        "ending_type",
+        "sentiment_score",
+        "top_comments",
+        "viewer_consensus",
+        "sentiment_summary",
+        "principal_actors",
     ]
     fake_engine = _FakeEngine(_FakeConnection(result=_FakeResult(rows, cols)))
     monkeypatch.setattr(
@@ -113,9 +160,11 @@ def test_load_dramas_from_etape1_success(monkeypatch: pytest.MonkeyPatch) -> Non
     df = data_loader.load_dramas_from_etape1(db_url="postgresql://fake")
 
     assert len(df) == 2
-    assert list(df.columns) == cols
+    assert set(cols).issubset(df.columns)
     assert df.loc[0, "synopsis"] == ""
     assert df.loc[0, "genres"] == ""
+    assert df.loc[0, "ending_type"] == "happy"
+    assert df.loc[0, "principal_actors"] == "Actor A"
     assert fake_engine.disposed is True
 
 
@@ -136,9 +185,7 @@ def test_load_dramas_from_etape1_raises_on_query_error(
 def test_load_dramas_from_etape1_raises_on_empty_table(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_result = _FakeResult(
-        [], ["drama_id", "title", "synopsis", "genres", "note_moyenne"]
-    )
+    fake_result = _FakeResult([], ["drama_id", "title", "synopsis", "genres", "note_moyenne"])
     fake_engine = _FakeEngine(_FakeConnection(result=fake_result))
     monkeypatch.setattr(
         data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine
@@ -285,34 +332,184 @@ def test_generate_interactions_output_shape_and_bounds() -> None:
     assert interactions_df.duplicated(subset=["user_id", "drama_id"]).sum() == 0
 
 
-def test_load_real_data_orchestration(monkeypatch: pytest.MonkeyPatch) -> None:
-    dramas_df = pd.DataFrame({"drama_id": [1], "note_moyenne": [8.0]})
-    interactions_df = pd.DataFrame({"user_id": [1], "drama_id": [1], "rating": [8.2]})
+def test_load_real_interactions_aggregates_notes_history_favorites_and_interest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_engine = _FakeEngine(
+        _FakeConnection(
+            query_results={
+                "from kdrama.notes": _FakeResult(
+                    [(1, 10, 8.0)],
+                    ["user_id", "drama_id", "note"],
+                ),
+                "from kdrama.historique_visionnage": _FakeResult(
+                    [(2, 20, 3, "abandonne"), (3, 30, 16, "termine")],
+                    ["user_id", "drama_id", "episodes_vus", "statut"],
+                ),
+                "from kdrama.favoris": _FakeResult(
+                    [(1, 10)],
+                    ["user_id", "drama_id"],
+                ),
+                "from kdrama.interet_utilisateur": _FakeResult(
+                    [(1, 10, True), (2, 20, False)],
+                    ["user_id", "drama_id", "interesse"],
+                ),
+            }
+        )
+    )
+    monkeypatch.setattr(
+        data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine
+    )
 
+    got = data_loader.load_real_interactions_from_etape1(db_url="postgresql://fake")
+
+    assert list(got.columns) == ["user_id", "drama_id", "rating"]
+    assert len(got) == 3
+    assert got.loc[(got["user_id"] == 1) & (got["drama_id"] == 10), "rating"].iloc[0] == pytest.approx(9.14, rel=1e-2)
+    assert got.loc[(got["user_id"] == 2) & (got["drama_id"] == 20), "rating"].iloc[0] < 2.0
+    assert got.loc[(got["user_id"] == 3) & (got["drama_id"] == 30), "rating"].iloc[0] == pytest.approx(8.8, rel=1e-2)
+    assert fake_engine.disposed is True
+
+
+def test_fetch_user_preferences_returns_expected_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_engine = _FakeEngine(
+        _FakeConnection(
+            query_results={
+                "from kdrama.utilisateurs": _FakeResult(
+                    [(True,)],
+                    ["fin_heureuse_uniquement"],
+                ),
+                "from kdrama.utilisateur_genres_preferes": _FakeResult(
+                    [("Romance",), ("Thriller",)],
+                    ["genre_name"],
+                ),
+                "from kdrama.utilisateur_acteurs_preferes": _FakeResult(
+                    [("Lee Min-ho",), ("Kim Soo-hyun",)],
+                    ["actor_name"],
+                ),
+                "from kdrama.favoris": _FakeResult(
+                    [(10,), (11,)],
+                    ["drama_id"],
+                ),
+                "from kdrama.interet_utilisateur": _FakeResult(
+                    [(12, True), (13, False)],
+                    ["drama_id", "interesse"],
+                ),
+            }
+        )
+    )
+    monkeypatch.setattr(
+        data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine
+    )
+
+    prefs = data_loader.fetch_user_preferences(7, db_url="postgresql://fake")
+
+    assert prefs["user_id"] == 7
+    assert prefs["happy_ending_only"] is True
+    assert prefs["favorite_genres"] == ["Romance", "Thriller"]
+    assert prefs["favorite_actors"] == ["Lee Min-ho", "Kim Soo-hyun"]
+    assert prefs["favorite_drama_ids"] == [10, 11]
+    assert prefs["interested_drama_ids"] == [12]
+    assert prefs["disliked_drama_ids"] == [13]
+
+
+def test_load_real_data_uses_real_interactions_when_enough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dramas_df = pd.DataFrame({"drama_id": [1], "note_moyenne": [8.0], "title": ["A"], "synopsis": [""], "genres": ["Drama"]})
+    real_interactions = pd.DataFrame(
+        {
+            "user_id": list(range(1, data_loader.MIN_REAL_INTERACTIONS + 1)),
+            "drama_id": [1] * data_loader.MIN_REAL_INTERACTIONS,
+            "rating": [8.0] * data_loader.MIN_REAL_INTERACTIONS,
+        }
+    )
+
+    monkeypatch.setattr(data_loader, "load_dramas_from_etape1", lambda *_args, **_kwargs: dramas_df)
+    monkeypatch.setattr(
+        data_loader,
+        "load_real_interactions_from_etape1",
+        lambda *_args, **_kwargs: real_interactions,
+    )
+
+    got_dramas, got_interactions = data_loader.load_real_data(db_url="postgresql://fake")
+    assert got_dramas is dramas_df
+    assert got_interactions is real_interactions
+
+
+def test_load_real_data_falls_back_to_synthetic_when_real_insufficient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dramas_df = pd.DataFrame(
+        {
+            "drama_id": [1, 2],
+            "title": ["A", "B"],
+            "synopsis": ["", ""],
+            "genres": ["Drama", "Comedy"],
+            "note_moyenne": [8.0, 7.0],
+        }
+    )
+    real_interactions = pd.DataFrame({"user_id": [1], "drama_id": [1], "rating": [9.0]})
+    synthetic_interactions = pd.DataFrame(
+        {"user_id": [1, 2], "drama_id": [1, 2], "rating": [8.0, 7.5]}
+    )
+
+    monkeypatch.setattr(data_loader, "load_dramas_from_etape1", lambda *_args, **_kwargs: dramas_df)
+    monkeypatch.setattr(
+        data_loader,
+        "load_real_interactions_from_etape1",
+        lambda *_args, **_kwargs: real_interactions,
+    )
+    monkeypatch.setattr(
+        data_loader,
+        "generate_interactions_from_catalog",
+        lambda *_args, **_kwargs: synthetic_interactions,
+    )
+
+    _, got_interactions = data_loader.load_real_data(db_url="postgresql://fake")
+    assert got_interactions is synthetic_interactions
+
+
+def test_load_real_data_orchestration_falls_back_on_interaction_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dramas_df = pd.DataFrame(
+        {
+            "drama_id": [1, 2],
+            "title": ["A", "B"],
+            "synopsis": ["", ""],
+            "genres": ["Drama", "Comedy"],
+            "note_moyenne": [8.0, 7.0],
+        }
+    )
+    synthetic_interactions = pd.DataFrame(
+        {"user_id": [1], "drama_id": [1], "rating": [8.2]}
+    )
     called: dict[str, object] = {}
 
-    def fake_load(db_url: str | None = None) -> pd.DataFrame:
-        called["db_url"] = db_url
-        return dramas_df
+    monkeypatch.setattr(data_loader, "load_dramas_from_etape1", lambda db_url=None: dramas_df)
 
-    def fake_generate(
+    def _raise(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("db down")
+
+    def _fake_generate(
         input_df: pd.DataFrame,
         num_users: int = 50,
         avg_interactions_per_user: int = 8,
         noise_std: float = 1.0,
         random_state: int = 42,
     ) -> pd.DataFrame:
-        called["input_df_is_same"] = input_df is dramas_df
+        called["same_df"] = input_df is dramas_df
         called["num_users"] = num_users
         called["avg"] = avg_interactions_per_user
         called["noise_std"] = noise_std
         called["random_state"] = random_state
-        return interactions_df
+        return synthetic_interactions
 
-    monkeypatch.setattr(data_loader, "load_dramas_from_etape1", fake_load)
-    monkeypatch.setattr(
-        data_loader, "generate_interactions_from_catalog", fake_generate
-    )
+    monkeypatch.setattr(data_loader, "load_real_interactions_from_etape1", _raise)
+    monkeypatch.setattr(data_loader, "generate_interactions_from_catalog", _fake_generate)
 
     got_dramas, got_interactions = data_loader.load_real_data(
         db_url="postgresql://fake",
@@ -321,8 +518,7 @@ def test_load_real_data_orchestration(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     assert got_dramas is dramas_df
-    assert got_interactions is interactions_df
-    assert called["db_url"] == "postgresql://fake"
-    assert called["input_df_is_same"] is True
+    assert got_interactions is synthetic_interactions
+    assert called["same_df"] is True
     assert called["num_users"] == 7
     assert called["avg"] == 4

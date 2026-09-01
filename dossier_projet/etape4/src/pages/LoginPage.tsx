@@ -1,12 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LogIn, AlertCircle, UserPlus } from 'lucide-react';
-import type { Page } from '../types';
+import type { Page, ActeurSummary } from '../types';
 import { useAuth } from '../auth';
-import { RecommendationAPIError, DataAPIError } from '../api';
+import { RecommendationAPIError, DataAPIError, dataApi } from '../api';
+import { GenreChipPicker } from '../components/GenreChipPicker';
+import { ActorAutocomplete } from '../components/ActorAutocomplete';
 
 interface LoginPageProps {
   nav: (p: Page) => void;
 }
+
+const MAX_GENRES = 3;
+const MAX_ACTORS = 5;
 
 export function LoginPage({ nav }: LoginPageProps) {
   const { login, register, flash, user } = useAuth();
@@ -18,6 +23,17 @@ export function LoginPage({ nav }: LoginPageProps) {
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Optional onboarding preferences (favorite genres/actors). Entirely
+  // skippable — a user can register without selecting anything here.
+  const [allGenres, setAllGenres] = useState<string[]>([]);
+  const [onboardGenres, setOnboardGenres] = useState<string[]>([]);
+  const [onboardActors, setOnboardActors] = useState<ActeurSummary[]>([]);
+
+  useEffect(() => {
+    if (mode !== 'register' || allGenres.length > 0) return;
+    dataApi.listGenres().then(setAllGenres).catch(() => setAllGenres([]));
+  }, [mode, allGenres.length]);
 
   if (user) {
     nav('home');
@@ -71,6 +87,20 @@ export function LoginPage({ nav }: LoginPageProps) {
         consentement_collecte: consent,
         consentement_marketing: marketingConsent,
       });
+      // Optional onboarding preferences: only saved if the user picked
+      // something. Registration itself never requires this.
+      if (onboardGenres.length > 0 || onboardActors.length > 0) {
+        try {
+          await dataApi.updatePreferences({
+            genres: onboardGenres,
+            acteur_ids: onboardActors.map((a) => a.id),
+          });
+        } catch {
+          // Non-blocking: the account is still created successfully even if
+          // saving initial preferences fails; the user can retry from their profile.
+          flash('Account created, but your initial preferences could not be saved. You can set them from your profile.', 'info');
+        }
+      }
       flash(`Account created. Welcome, ${username}!`, 'success');
       nav('home');
     } catch (err) {
@@ -200,6 +230,41 @@ export function LoginPage({ nav }: LoginPageProps) {
                 required
               />
             </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <p className="text-sm font-medium text-slate-700 mb-1">
+                Personalize your recommendations <span className="font-normal text-gray-400">(optional)</span>
+              </p>
+              <p className="text-xs text-gray-400 mb-3">
+                You can skip this and set it later from your profile.
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Favorite genres (up to {MAX_GENRES})
+                  </label>
+                  <GenreChipPicker
+                    id="onboard-genres"
+                    allGenres={allGenres}
+                    selected={onboardGenres}
+                    onChange={setOnboardGenres}
+                    maxSelections={MAX_GENRES}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Favorite actors/actresses (up to {MAX_ACTORS})
+                  </label>
+                  <ActorAutocomplete
+                    id="onboard-actors"
+                    selected={onboardActors}
+                    onChange={setOnboardActors}
+                    maxSelections={MAX_ACTORS}
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <label className="flex items-start gap-2 text-sm text-slate-600">
                 <input
@@ -254,12 +319,6 @@ export function LoginPage({ nav }: LoginPageProps) {
             </p>
           )}
         </div>
-
-        {mode === 'login' && (
-          <p className="text-xs text-gray-400 text-center mt-4">
-            Demo account: user / user123
-          </p>
-        )}
       </div>
     </div>
   );

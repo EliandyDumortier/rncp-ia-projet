@@ -3,10 +3,15 @@ import type {
   ModelInfo,
   PaginatedDramas,
   ApiDrama,
-  GenreResponse,
   RegisteredUser,
   RatingResponse,
   PaginatedRatings,
+  UserProfile,
+  PreferencesUpdateRequest,
+  FavoriResponse,
+  HistoriqueVisionnageResponse,
+  InteretResponse,
+  ActeurSummary,
 } from './types';
 
 export class RecommendationAPIError extends Error {
@@ -66,11 +71,21 @@ async function fetchWithTimeout(
 }
 
 export const apiClient = {
+  /**
+   * Authenticates against the data-api (etape1), the single source of truth
+   * for real user accounts (kdrama.utilisateurs). The resulting JWT (sub =
+   * real numeric user id, signed with the shared JWT secret) is also valid
+   * for the model-api (etape3) /recommend and /predict endpoints.
+   */
   async authenticate(username: string, password: string): Promise<{ access_token: string }> {
-    const response = await fetchWithTimeout(`${API_IA_URL}/auth/token`, {
+    const body = new URLSearchParams();
+    body.set('username', username);
+    body.set('password', password);
+
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
     });
 
     if (response.status === 401) {
@@ -86,18 +101,41 @@ export const apiClient = {
   },
 
   async getRecommendations(
-    user_id: number | null = null,
-    drama_id: number | null = null,
-    top_k: number = 10
+    options: {
+      user_id?: number | null;
+      drama_id?: number | null;
+      top_k?: number;
+      mood?: string | null;
+      text?: string | null;
+      genres?: string[] | null;
+      actor_names?: string[] | null;
+      happy_ending_only?: boolean | null;
+    } = {}
   ): Promise<{ recommendations: Recommendation[]; mode: string }> {
     const token = getStoredToken();
     if (!token) {
       throw new RecommendationAPIError('No JWT token. Authentication required.', 401);
     }
 
+    const {
+      user_id = null,
+      drama_id = null,
+      top_k = 10,
+      mood = null,
+      text = null,
+      genres = null,
+      actor_names = null,
+      happy_ending_only = null,
+    } = options;
+
     const payload: Record<string, unknown> = { top_k };
     if (user_id !== null) payload.user_id = user_id;
     if (drama_id !== null) payload.drama_id = drama_id;
+    if (mood) payload.mood = mood;
+    if (text) payload.text = text;
+    if (genres && genres.length > 0) payload.genres = genres;
+    if (actor_names && actor_names.length > 0) payload.actor_names = actor_names;
+    if (happy_ending_only !== null) payload.happy_ending_only = happy_ending_only;
 
     const response = await fetchWithTimeout(`${API_IA_URL}/recommend`, {
       method: 'POST',
@@ -132,6 +170,7 @@ export const apiClient = {
         const synopsis = r.synopsis || '';
         const poster = r.poster || r.poster_url || r.affiche || 'https://via.placeholder.com/400x600?text=No+Poster';
         const score = r.score || 0;
+        const explanation = r.explanation || undefined;
 
         return {
           id,
@@ -144,6 +183,7 @@ export const apiClient = {
           poster,
           predicted_rating: score,
           score,
+          explanation,
         };
       }),
       mode: data.mode || 'user',
@@ -308,5 +348,164 @@ export const dataApi = {
     } catch {
       return false;
     }
+  },
+
+  async getMe(): Promise<UserProfile> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+    return response.json();
+  },
+
+  async updatePreferences(prefs: PreferencesUpdateRequest): Promise<UserProfile> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/auth/me/preferences`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}` },
+      body: JSON.stringify(prefs),
+    });
+    if (response.status === 400 || response.status === 422) {
+      const body = await response.json().catch(() => null);
+      throw new DataAPIError(body?.detail ?? 'Preferences update failed.', response.status);
+    }
+    if (!response.ok) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+    return response.json();
+  },
+
+  /** Actor autocomplete: reuses the existing paginated /api/v1/acteurs?search= endpoint. */
+  async searchActeurs(search: string, pageSize: number = 10): Promise<ActeurSummary[]> {
+    const params = new URLSearchParams({ page: '1', page_size: String(pageSize) });
+    if (search) params.set('search', search);
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/acteurs?${params.toString()}`);
+    if (!response.ok) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+    const data = await response.json();
+    return data.items ?? [];
+  },
+
+  async listFavoris(): Promise<FavoriResponse[]> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/favoris`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+    return response.json();
+  },
+
+  async addFavori(kdramaId: number): Promise<FavoriResponse> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/favoris/${kdramaId}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+    return response.json();
+  },
+
+  async removeFavori(kdramaId: number): Promise<void> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/favoris/${kdramaId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok && response.status !== 204) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+  },
+
+  async listHistorique(): Promise<HistoriqueVisionnageResponse[]> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/historique`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+    return response.json();
+  },
+
+  async upsertHistorique(
+    kdramaId: number,
+    statut: 'a_voir' | 'en_cours' | 'termine' | 'abandonne',
+    episodesVus: number = 0
+  ): Promise<HistoriqueVisionnageResponse> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/historique/${kdramaId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ kdrama_id: kdramaId, episodes_vus: episodesVus, statut }),
+    });
+    if (!response.ok) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+    return response.json();
+  },
+
+  async getInteret(kdramaId: number): Promise<InteretResponse | null> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/kdramas/${kdramaId}/interet`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+    return response.json();
+  },
+
+  async setInteret(kdramaId: number, interesse: boolean): Promise<InteretResponse> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/kdramas/${kdramaId}/interet`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ interesse }),
+    });
+    if (!response.ok) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+    return response.json();
   },
 };

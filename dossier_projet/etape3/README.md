@@ -14,6 +14,7 @@
 - [Pipeline MLOps (GitHub Actions)](#pipeline-mlops-github-actions)
 - [Docker](#docker)
 - [Installation et démarrage](#installation-et-démarrage)
+- [Streamlit POC](#streamlit-poc)
 - [Variables d'environnement](#variables-denvironnement)
 - [Endpoints de l'API](#endpoints-de-lapi)
 - [Compétences RNCP couvertes](#compétences-rncp-couvertes)
@@ -333,6 +334,20 @@ docker run --rm -p 8001:8001 \
 ```bash
 pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=80
 ```
+
+---
+
+## Streamlit POC
+
+Une interface de démonstration est disponible dans `streamlit_app.py`.
+
+```bash
+cd dossier_projet/etape3
+streamlit run streamlit_app.py
+```
+
+Le POC fonctionne directement avec le modèle local (chargement des artefacts ou entraînement local si nécessaire).  
+Optionnellement, définissez `MODEL_API_URL` et `MODEL_API_TOKEN` pour tester le endpoint FastAPI `/recommend`.
 
 ---
 
