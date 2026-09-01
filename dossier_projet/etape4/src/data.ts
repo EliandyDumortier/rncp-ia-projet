@@ -249,6 +249,7 @@ function extractGenres(api: ApiDrama): string[] {
 
   // Normalize all genres to English and remove duplicates
   const normalized = genres
+    .map(g => normalizeGenreToEnglish(g))
     .filter((g, i, arr) => g && arr.indexOf(g) === i); // Remove duplicates
 
   return normalized;
@@ -355,7 +356,7 @@ export async function fetchGenres(): Promise<string[]> {
   try {
     const genres: GenreResponse[] = await dataApi.listGenres();
     return genres
-      .map((g) => cleanGenreString(g.nom))
+      .map((g) => normalizeGenreToEnglish(cleanGenreString(g.nom)))
       .filter((g) => g && g.trim().length > 0)
       .filter((g, i, arr) => arr.indexOf(g) === i)  // Remove duplicates
       .sort();
@@ -366,59 +367,60 @@ export async function fetchGenres(): Promise<string[]> {
 
 function normalizeGenreToEnglish(genre: string): string {
   const frenchToEnglish: Record<string, string> = {
+    "action": "Action",
+    "action & adventure": "Action & Adventure",
+    "amitié": "Friendship",
+    "business": "Business",
     "comédie": "Comedy",
     "comedie": "Comedy",
+    "comédie romantique": "Romantic Comedy",
+    "comedie romantique": "Romantic Comedy",
+    "crime": "Crime",
     "drame": "Drama",
+    "espionnage": "Espionage",
+    "famille": "Family",
+    "fantastique": "Fantasy",
+    "historique": "Historical",
+    "horreur": "Horror",
+    "jeunesse": "Youth",
+    "juridique": "Legal",
+    "militaire": "Military",
+    "musique": "Music",
     "mystère": "Mystery",
     "mystere": "Mystery",
-    "historique": "Historical",
-    "fantastique": "Fantasy",
-    "science-fiction": "Science Fiction",
-    "sf": "Science Fiction",
-    "surnaturel": "Supernatural",
+    "médical": "Medical",
+    "medical": "Medical",
+    "mélodrame": "Melodrama",
+    "melodrame": "Melodrama",
     "politique": "Political",
-    "juridique": "Legal",
-    "famille": "Family",
-    "amitié": "Friendship",
-    "amitie": "Friendship",
+    "psychologique": "Psychological",
+    "romance": "Romance",
+    "science-fiction": "Science Fiction",
+    "science fiction": "Science Fiction",
+    "sport": "Sport",
+    "surnaturel": "Supernatural",
+    "thriller": "Thriller",
     "tranche de vie": "Slice of Life",
-    "jeunesse": "Youth",
+    "vampire": "Vampire",
+    "voyage dans le temps": "Time Travel",
+    "zombie": "Zombie",
     "école": "School",
     "ecole": "School",
-    "psychologique": "Psychological",
-    "militaire": "Military",
-    "espionnage": "Espionage",
-    "voyage dans le temps": "Time Travel",
+    "life": "Life",
+    "family": "Family",
+    "drama": "Drama",
+    "mystery": "Mystery",
     "romance": "Romance",
-    "action": "Action",
-    "aventure": "Adventure",
-    "aventura": "Adventure",
-    "horreur": "Horror",
-    "horeur": "Horror",
-    "crime": "Crime",
-    "suspense": "Suspense",
+    "sci-fi & fantasy": "Sci-Fi & Fantasy",
+    "soap": "Soap",
     "thriller": "Thriller",
-    "musical": "Musical",
+    "war & politics": "War & Politics",
+    "youth": "Youth",
   };
 
   const key = genre
     .toLowerCase()
-    .trim()
-    .replace(/é/g, "e")
-    .replace(/è/g, "e")
-    .replace(/ê/g, "e")
-    .replace(/ë/g, "e")
-    .replace(/à/g, "a")
-    .replace(/â/g, "a")
-    .replace(/ä/g, "a")
-    .replace(/î/g, "i")
-    .replace(/ï/g, "i")
-    .replace(/ô/g, "o")
-    .replace(/ö/g, "o")
-    .replace(/ù/g, "u")
-    .replace(/û/g, "u")
-    .replace(/ü/g, "u")
-    .replace(/ç/g, "c");
+    .trim();
 
   return frenchToEnglish[key] || genre;
 }
