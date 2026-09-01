@@ -846,9 +846,14 @@ def list_kdramas(
 
         if genre:
             print(f"4. Applying genre filter: {genre}")
+            # Simple approach: check if genre appears in the genres field
+            # Genres field contains messy strings like: ["Comedy", "Drama"] or "Comedy, Drama"
             query = query.filter(
-                Kdrama.genres.contains(genre)
+                Kdrama.genres.ilike(f"%{genre}%")
             )
+            print(f"   Genre filter: genres ILIKE %{genre}%")
+            test_count = query.count()
+            print(f"   Results after genre filter: {test_count}")
 
         print(f"5. Applying sort: {sort_by} {sort_order}")
         sort_column = getattr(Kdrama, sort_by, Kdrama.note_moyenne)

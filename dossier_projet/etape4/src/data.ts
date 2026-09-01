@@ -290,6 +290,7 @@ export async function fetchDramas(
   search?: string,
   sortBy: string = "note_moyenne",
   sortOrder: "asc" | "desc" = "desc",
+  genre?: string,
 ): Promise<{
   items: Drama[];
   total: number;
@@ -317,6 +318,7 @@ export async function fetchDramas(
       search,
       sortBy,
       sortOrder,
+      genre,
     );
 
     // Always return API results if successful, even if empty
