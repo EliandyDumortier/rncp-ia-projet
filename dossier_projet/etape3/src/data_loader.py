@@ -284,9 +284,12 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
                         note_moyenne,
                         nb_votes,
                         date_diffusion,
+                        nb_episodes,
+                        nb_saisons,
                         reseaux_diffusion,
                         acteurs,
-                        tags
+                        tags,
+                        poster
                     FROM kdrama.kdramas
                     WHERE titre IS NOT NULL
                     ORDER BY titre
