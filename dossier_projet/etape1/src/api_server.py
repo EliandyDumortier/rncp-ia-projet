@@ -917,13 +917,17 @@ def list_kdrama_genres(db: Session = Depends(get_db)):
     try:
         result = db.execute(
             text("""
-                SELECT DISTINCT TRIM(unnest(string_to_array(genres, ','))) AS genre
+                SELECT DISTINCT
+                  TRIM(regexp_replace(
+                    TRIM(unnest(string_to_array(genres, ','))),
+                    '["\[\]\\\\]', '', 'g'
+                  )) AS genre
                 FROM kdrama.kdramas
                 WHERE genres IS NOT NULL AND genres != ''
                 ORDER BY genre
             """)
         )
-        genres = [row[0] for row in result.fetchall()]
+        genres = [row[0] for row in result.fetchall() if row[0] and row[0].strip()]
         return genres
     except Exception as e:
         logger.error("Error fetching kdrama genres: %s", e)
