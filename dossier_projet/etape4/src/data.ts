@@ -247,9 +247,9 @@ function extractGenres(api: ApiDrama): string[] {
     }
   }
 
-  // Normalize all genres to English and remove duplicates
+  // Clean genres and remove duplicates
   const normalized = genres
-    .map(g => normalizeGenreToEnglish(g))
+    .map(g => cleanGenreString(g))
     .filter((g, i, arr) => g && arr.indexOf(g) === i); // Remove duplicates
 
   return normalized;
@@ -354,9 +354,9 @@ export async function fetchDramas(
 
 export async function fetchGenres(): Promise<string[]> {
   try {
-    const genres: GenreResponse[] = await dataApi.listGenres();
+    const genres: string[] = await dataApi.listGenres();
     return genres
-      .map((g) => normalizeGenreToEnglish(cleanGenreString(g.nom)))
+      .map((g) => cleanGenreString(g))
       .filter((g) => g && g.trim().length > 0)
       .filter((g, i, arr) => arr.indexOf(g) === i)  // Remove duplicates
       .sort();

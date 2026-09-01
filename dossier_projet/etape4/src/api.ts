@@ -221,8 +221,8 @@ export const dataApi = {
     return response.json();
   },
 
-  async listGenres(): Promise<GenreResponse[]> {
-    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/genres`);
+  async listGenres(): Promise<string[]> {
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/kdramas/genres`);
     if (!response.ok) {
       throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
     }

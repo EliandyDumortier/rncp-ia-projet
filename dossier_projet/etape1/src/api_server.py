@@ -1120,6 +1120,41 @@ def list_genres(db: Session = Depends(get_db)):
     return db.query(Genre).order_by(Genre.nom).all()
 
 
+@app.get(
+    "/api/v1/kdramas/genres",
+    summary="Genres from K-Dramas catalog",
+    description="Returns unique genres extracted from the kdramas table (source of truth)",
+)
+def list_kdrama_genres(db: Session = Depends(get_db)):
+    """Returns unique genres from the kdramas table.
+
+    This endpoint queries the actual K-Drama genres field and extracts unique values,
+    providing the authoritative list of genres available in the catalog.
+
+    Args:
+        db: Session de base de données.
+
+    Returns:
+        List of unique genres from kdramas table.
+    """
+    from sqlalchemy import text
+
+    try:
+        result = db.execute(
+            text("""
+                SELECT DISTINCT TRIM(unnest(string_to_array(genres, ','))) AS genre
+                FROM kdrama.kdramas
+                WHERE genres IS NOT NULL AND genres != ''
+                ORDER BY genre
+            """)
+        )
+        genres = [row[0] for row in result.fetchall()]
+        return genres
+    except Exception as e:
+        logger.error("Error fetching kdrama genres: %s", e)
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Endpoints — Notes
 # ---------------------------------------------------------------------------
