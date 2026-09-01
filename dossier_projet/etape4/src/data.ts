@@ -186,39 +186,38 @@ function extractGenres(api: ApiDrama): string[] {
     annee_diffusion?: number | null;
   };
 
+  let genres: string[] = [];
+
   // Try genre_names first
   if (Array.isArray(a.genre_names)) {
-    return a.genre_names.filter(
+    genres = a.genre_names.filter(
       (g): g is string => typeof g === "string" && g.trim().length > 0,
     );
-  }
-
-  // Try genres as array of objects or strings
-  if (Array.isArray(a.genres)) {
-    return a.genres
+  } else if (Array.isArray(a.genres)) {
+    // Try genres as array of objects or strings
+    genres = a.genres
       .map((g) => (typeof g === "string" ? g : (g?.nom ?? "")))
       .filter((g): g is string => typeof g === "string" && g.trim().length > 0);
-  }
-
-  // Try genres as JSON string (common in etape1 API)
-  if (typeof a.genres === "string" && a.genres.trim()) {
+  } else if (typeof a.genres === "string" && a.genres.trim()) {
+    // Try genres as JSON string (common in etape1 API)
     try {
       const parsed = JSON.parse(a.genres);
       if (Array.isArray(parsed)) {
-        return parsed
+        genres = parsed
           .map((g) => typeof g === "string" ? g : (g?.nom ?? ""))
           .filter((g): g is string => g.trim().length > 0);
       }
     } catch {
       // If JSON parsing fails, split by comma
-      return a.genres
+      genres = a.genres
         .split(",")
         .map((g) => g.trim())
         .filter((g) => g.length > 0);
     }
   }
 
-  return [];
+  // Normalize all genres to English
+  return genres.map(g => normalizeGenreToEnglish(g));
 }
 
 export function apiDramaToDrama(api: ApiDrama): Drama {
@@ -321,10 +320,72 @@ export async function fetchDramas(
 export async function fetchGenres(): Promise<string[]> {
   try {
     const genres: GenreResponse[] = await dataApi.listGenres();
-    return genres.map((g) => g.nom).sort();
+    return genres
+      .map((g) => normalizeGenreToEnglish(g.nom))
+      .filter((g) => g && g.trim().length > 0)
+      .sort();
   } catch {
     return allGenres;
   }
+}
+
+function normalizeGenreToEnglish(genre: string): string {
+  const frenchToEnglish: Record<string, string> = {
+    "comédie": "Comedy",
+    "comedie": "Comedy",
+    "drame": "Drama",
+    "mystère": "Mystery",
+    "mystere": "Mystery",
+    "historique": "Historical",
+    "fantastique": "Fantasy",
+    "science-fiction": "Science Fiction",
+    "sf": "Science Fiction",
+    "surnaturel": "Supernatural",
+    "politique": "Political",
+    "juridique": "Legal",
+    "famille": "Family",
+    "amitié": "Friendship",
+    "amitie": "Friendship",
+    "tranche de vie": "Slice of Life",
+    "jeunesse": "Youth",
+    "école": "School",
+    "ecole": "School",
+    "psychologique": "Psychological",
+    "militaire": "Military",
+    "espionnage": "Espionage",
+    "voyage dans le temps": "Time Travel",
+    "romance": "Romance",
+    "action": "Action",
+    "aventure": "Adventure",
+    "aventura": "Adventure",
+    "horreur": "Horror",
+    "horeur": "Horror",
+    "crime": "Crime",
+    "suspense": "Suspense",
+    "thriller": "Thriller",
+    "musical": "Musical",
+  };
+
+  const key = genre
+    .toLowerCase()
+    .trim()
+    .replace(/é/g, "e")
+    .replace(/è/g, "e")
+    .replace(/ê/g, "e")
+    .replace(/ë/g, "e")
+    .replace(/à/g, "a")
+    .replace(/â/g, "a")
+    .replace(/ä/g, "a")
+    .replace(/î/g, "i")
+    .replace(/ï/g, "i")
+    .replace(/ô/g, "o")
+    .replace(/ö/g, "o")
+    .replace(/ù/g, "u")
+    .replace(/û/g, "u")
+    .replace(/ü/g, "u")
+    .replace(/ç/g, "c");
+
+  return frenchToEnglish[key] || genre;
 }
 
 export async function fetchDramaByTitle(title: string): Promise<Drama | null> {
