@@ -179,6 +179,16 @@ export const carouselSlides: CarouselSlide[] = [
 const PLACEHOLDER_POSTER =
   "https://images.pexels.com/photos/2873486/pexels-photo-2873486.jpeg?auto=compress&cs=tinysrgb&w=400&h=600&fit=crop";
 
+function cleanGenreString(str: string): string {
+  return str
+    .trim()
+    .replace(/^[\[\{"]/, "")     // Remove leading [ { "
+    .replace(/[\]\}"]$/, "")     // Remove trailing ] } "
+    .replace(/^["']/, "")         // Remove leading quotes
+    .replace(/["']$/, "")         // Remove trailing quotes
+    .trim();
+}
+
 function extractGenres(api: ApiDrama): string[] {
   const a = api as ApiDrama & {
     genre_names?: string[] | null;
@@ -190,14 +200,14 @@ function extractGenres(api: ApiDrama): string[] {
 
   // Try genre_names first
   if (Array.isArray(a.genre_names)) {
-    genres = a.genre_names.filter(
-      (g): g is string => typeof g === "string" && g.trim().length > 0,
-    );
+    genres = a.genre_names
+      .filter((g): g is string => typeof g === "string" && g.trim().length > 0)
+      .map(cleanGenreString);
   } else if (Array.isArray(a.genres)) {
     // Try genres as array of objects or strings
     genres = a.genres
-      .map((g) => (typeof g === "string" ? g : (g?.nom ?? "")))
-      .filter((g): g is string => typeof g === "string" && g.trim().length > 0);
+      .map((g) => cleanGenreString(typeof g === "string" ? g : (g?.nom ?? "")))
+      .filter((g): g is string => g.length > 0);
   } else if (typeof a.genres === "string" && a.genres.trim()) {
     // Try genres as JSON string (common in etape1 API)
     let genreString = a.genres.trim();
@@ -208,13 +218,8 @@ function extractGenres(api: ApiDrama): string[] {
       if (Array.isArray(parsed)) {
         genres = parsed
           .map((g) => {
-            // Clean up each genre: remove quotes, brackets, commas
             let clean = typeof g === "string" ? g : (g?.nom ?? "");
-            return clean
-              .trim()
-              .replace(/^[\[\"]/, "")  // Remove leading [ or "
-              .replace(/[\]\"]$/, "")  // Remove trailing ] or "
-              .trim();
+            return cleanGenreString(clean);
           })
           .filter((g): g is string => g.length > 0);
       }
@@ -222,13 +227,7 @@ function extractGenres(api: ApiDrama): string[] {
       // If JSON parsing fails, split by comma and clean
       genres = genreString
         .split(",")
-        .map((g) =>
-          g
-            .trim()
-            .replace(/^[\[\"]/, "")  // Remove leading [ or "
-            .replace(/[\]\"]$/, "")  // Remove trailing ] or "
-            .trim()
-        )
+        .map(cleanGenreString)
         .filter((g) => g.length > 0);
     }
   }

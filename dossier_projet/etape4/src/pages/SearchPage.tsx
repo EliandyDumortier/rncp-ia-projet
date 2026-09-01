@@ -70,10 +70,27 @@ export function SearchPage({ nav }: SearchPageProps) {
     fetchPage();
   }, [currentPage, query]);
 
-  // Filter results by genre
+  // Filter results by genre - with debug logging
   const filtered = genreFilter === 'All genres'
     ? results
-    : results.filter((d) => d.genres.some(g => g.toLowerCase() === genreFilter.toLowerCase()));
+    : results.filter((d) => {
+        // Debug: log what we're comparing
+        if (d.genres.length > 0) {
+          console.log(`Drama: ${d.title}, genres:`, d.genres, 'Filter:', genreFilter);
+        }
+        return d.genres.some(g => {
+          // Clean the genre string further to handle any remaining brackets/quotes
+          const cleanGenre = g
+            .toLowerCase()
+            .replace(/[\[\]"']/g, '')
+            .trim();
+          const cleanFilter = genreFilter
+            .toLowerCase()
+            .replace(/[\[\]"']/g, '')
+            .trim();
+          return cleanGenre === cleanFilter;
+        });
+      });
 
   // Calculate pagination based on filtered results
   const totalFiltered = genreFilter === 'All genres'
