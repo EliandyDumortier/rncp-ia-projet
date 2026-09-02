@@ -18,11 +18,10 @@ interface RecommendationsPageProps {
 // with: the recommendation page must never show more than 4 results per
 // section (history/personalized and explore/mood-keywords).
 const MAX_RESULTS_PER_SECTION = 4;
-// Fetch a few extra candidates beyond what's shown so that marking a drama
-// "not interested" can be backfilled instantly from the existing pool,
-// without waiting on a fresh network round-trip (whose result may briefly
-// still include the just-disliked drama due to short-lived server caching).
-const POOL_BUFFER_SIZE = MAX_RESULTS_PER_SECTION * 3;
+// Fetch a much larger buffer so that "not interested" exclusions don't leave
+// you with too few results. We fetch 10x the display size so even if many are
+// marked disliked, we still have enough to show.
+const POOL_BUFFER_SIZE = MAX_RESULTS_PER_SECTION * 10;
 
 const MOOD_GENRES = [
   { label: 'Comfort', emoji: '🪴' },
