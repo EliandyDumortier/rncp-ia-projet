@@ -40,6 +40,20 @@ _CLUSTER_STOPWORDS = {
     "stories",
     "kdrama",
     "kdramas",
+    # Defensive: cluster labels are derived from synopsis/genres only (see
+    # _build_content_clusters), but these are excluded too in case sentiment
+    # boilerplate ever leaks into that text — labels should describe THEMES,
+    # not repeat the audience-reception/sentiment signal shown elsewhere.
+    "positive",
+    "negative",
+    "mixed",
+    "strongly",
+    "overwhelmingly",
+    "reception",
+    "consensus",
+    "viewers",
+    "audience",
+    "tone",
 }
 
 
@@ -482,7 +496,21 @@ class HybridRecommender:
             stop_words="english",
             ngram_range=(1, 2),
         )
-        tfidf_matrix = vectorizer.fit_transform(self.dramas_df["content_text"].astype(str))
+        # Cluster labels should describe THEMES (plot, setting, dynamics),
+        # not repeat the sentiment/ending/audience-reception signal that's
+        # already surfaced separately in the explanation. Using content_text
+        # here (which also embeds ending/tone phrases and viewer_consensus
+        # boilerplate like "Strongly positive") caused labels such as
+        # "positive, strongly positive, strongly" instead of real themes —
+        # so cluster labeling uses a narrower, theme-only text source.
+        label_source_texts = (
+            self.dramas_df["synopsis"].astype(str)
+            + " "
+            + self.dramas_df["genres"].apply(
+                lambda value: " ".join(self._parse_list(value))
+            )
+        )
+        tfidf_matrix = vectorizer.fit_transform(label_source_texts)
         feature_names = np.array(vectorizer.get_feature_names_out())
 
         self.cluster_labels = {}
@@ -498,7 +526,11 @@ class HybridRecommender:
                 and not any(stop in term.split() for stop in _CLUSTER_STOPWORDS)
             ]
             label = ", ".join(clean_terms[:3]).strip(", ")
-            self.cluster_labels[int(cluster_id)] = label or "similar vibe"
+            # Empty string (not "similar vibe") when no good theme keyword is
+            # found: the consumer (_build_explanation) appends "... vibe"
+            # itself, so a non-empty placeholder here would read as
+            # "shares a similar vibe vibe".
+            self.cluster_labels[int(cluster_id)] = label
 
     def _build_user_item_matrix(self) -> None:
         if self.interactions_df is None:
@@ -752,7 +784,7 @@ class HybridRecommender:
             parts.append("fits the mood and tone you asked for")
 
         cluster_label = info.get("cluster_label", "")
-        if cluster_label:
+        if cluster_label and cluster_label != "similar vibe":
             parts.append(f"shares a {cluster_label} vibe")
 
         if not parts:

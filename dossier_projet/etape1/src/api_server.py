@@ -21,6 +21,7 @@ Projet : Système de recommandation de K-Dramas par IA
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, date, timedelta, timezone
@@ -272,16 +273,22 @@ class UtilisateurGenrePrefere(Base):
 
 
 class UtilisateurActeurPrefere(Base):
-    """Modèle ORM pour la table utilisateur_acteurs_preferes (acteurs favoris, max 5)."""
+    """Modèle ORM pour la table utilisateur_acteurs_preferes (acteurs favoris, max 5).
+
+    Stocké par NOM d'acteur (et non par FK vers kdrama.acteurs) car la table
+    de référence kdrama.acteurs n'est pas peuplée par le pipeline de collecte
+    actuel — la source de vérité réelle est la colonne kdramas.acteurs (JSON),
+    au même titre que les genres sont dérivés de kdramas.genres. Voir
+    /api/v1/kdramas/actors, qui dérive la liste des acteurs de cette même
+    colonne pour l'autocomplétion.
+    """
     __tablename__ = "utilisateur_acteurs_preferes"
     __table_args__ = {"schema": "kdrama"}
 
     utilisateur_id: Mapped[int] = Column(
         Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"), primary_key=True
     )
-    acteur_id: Mapped[int] = Column(
-        Integer, ForeignKey("kdrama.acteurs.id", ondelete="CASCADE"), primary_key=True
-    )
+    acteur_nom: Mapped[str] = Column(String(200), primary_key=True)
     date_ajout: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
 
 
@@ -515,7 +522,7 @@ class UserResponse(BaseModel):
     consentement_marketing: bool
     fin_heureuse_uniquement: bool = False
     genres_preferes: list[str] = Field(default_factory=list)
-    acteurs_preferes: list["ActeurResponse"] = Field(default_factory=list)
+    acteurs_preferes: list[str] = Field(default_factory=list)
     nb_dramas_vus: int = 0
     nb_favoris: int = 0
 
@@ -528,8 +535,13 @@ class PreferencesUpdate(BaseModel):
     genres: Optional[list[str]] = Field(
         None, description="Noms des genres favoris (maximum 3)."
     )
-    acteur_ids: Optional[list[int]] = Field(
-        None, description="Identifiants des acteurs/actrices favoris (maximum 5)."
+    acteurs: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Noms des acteurs/actrices favoris (maximum 5). Voir "
+            "/api/v1/kdramas/actors pour l'autocomplétion (source de "
+            "vérité : colonne kdramas.acteurs, comme pour les genres)."
+        ),
     )
     fin_heureuse_uniquement: Optional[bool] = Field(
         None, description="Ne recommander que des dramas à fin heureuse."
@@ -542,9 +554,9 @@ class PreferencesUpdate(BaseModel):
             raise ValueError("Maximum 3 favorite genres allowed")
         return v
 
-    @field_validator("acteur_ids")
+    @field_validator("acteurs")
     @classmethod
-    def _valider_acteurs(cls, v: Optional[list[int]]) -> Optional[list[int]]:
+    def _valider_acteurs(cls, v: Optional[list[str]]) -> Optional[list[str]]:
         if v is not None and len(v) > 5:
             raise ValueError("Maximum 5 favorite actors allowed")
         return v
@@ -757,13 +769,13 @@ def build_user_response(utilisateur: "Utilisateur", db: Session) -> "UserRespons
         .order_by(Genre.nom)
         .all()
     ]
-    acteurs_preferes = (
-        db.query(Acteur)
-        .join(UtilisateurActeurPrefere, UtilisateurActeurPrefere.acteur_id == Acteur.id)
+    acteurs_preferes = [
+        row.acteur_nom
+        for row in db.query(UtilisateurActeurPrefere)
         .filter(UtilisateurActeurPrefere.utilisateur_id == utilisateur.id)
-        .order_by(Acteur.nom)
+        .order_by(UtilisateurActeurPrefere.acteur_nom)
         .all()
-    )
+    ]
     nb_dramas_vus = (
         db.query(HistoriqueVisionnage)
         .filter(HistoriqueVisionnage.utilisateur_id == utilisateur.id)
@@ -892,7 +904,7 @@ def login(
     # accepté tel quel par le model-api de l'étape 3 (/recommend, /predict),
     # qui partage le même secret — voir dossier_projet/etape3/src/model_api.py.
     token = creer_token_jwt(
-        data={"sub": str(utilisateur.id), "role": utilisateur.role}
+        donnees={"sub": str(utilisateur.id), "role": utilisateur.role}
     )
     logger.info("Connexion réussie: %s (id=%d)", utilisateur.pseudonyme, utilisateur.id)
     return Token(
@@ -944,7 +956,7 @@ def update_my_preferences(
     """Met à jour les préférences de recommandation de l'utilisateur connecté.
 
     Args:
-        prefs: Genres favoris (noms, max 3), acteurs favoris (ids, max 5) et/ou
+        prefs: Genres favoris (noms, max 3), acteurs favoris (noms, max 5) et/ou
             préférence de fin heureuse. Tous les champs sont optionnels.
         current_user: Utilisateur authentifié.
         db: Session de base de données.
@@ -953,7 +965,7 @@ def update_my_preferences(
         Le profil utilisateur mis à jour.
 
     Raises:
-        HTTPException: 400 si un genre ou un acteur indiqué n'existe pas.
+        HTTPException: 400 si un genre indiqué n'existe pas.
     """
     if prefs.fin_heureuse_uniquement is not None:
         current_user.fin_heureuse_uniquement = prefs.fin_heureuse_uniquement
@@ -973,22 +985,25 @@ def update_my_preferences(
         for genre in genres_trouves:
             db.add(UtilisateurGenrePrefere(utilisateur_id=current_user.id, genre_id=genre.id))
 
-    if prefs.acteur_ids is not None:
-        acteurs_trouves = (
-            db.query(Acteur).filter(Acteur.id.in_(prefs.acteur_ids)).all()
-            if prefs.acteur_ids
-            else []
-        )
-        if len(acteurs_trouves) != len(set(prefs.acteur_ids)):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="One or more selected actors do not exist",
-            )
+    if prefs.acteurs is not None:
+        # Pas de validation d'existence contre une table de référence : la
+        # table kdrama.acteurs n'est pas peuplée par le pipeline de collecte
+        # (cf. /api/v1/kdramas/actors, dérivé en direct de kdramas.acteurs,
+        # exactement comme les genres le sont de kdramas.genres). On stocke
+        # donc le nom saisi/sélectionné directement, après nettoyage.
+        noms_uniques = []
+        for nom in prefs.acteurs:
+            nom_propre = nom.strip()
+            if nom_propre and nom_propre not in noms_uniques:
+                noms_uniques.append(nom_propre)
+
         db.query(UtilisateurActeurPrefere).filter(
             UtilisateurActeurPrefere.utilisateur_id == current_user.id
         ).delete()
-        for acteur in acteurs_trouves:
-            db.add(UtilisateurActeurPrefere(utilisateur_id=current_user.id, acteur_id=acteur.id))
+        for nom_propre in noms_uniques:
+            db.add(
+                UtilisateurActeurPrefere(utilisateur_id=current_user.id, acteur_nom=nom_propre)
+            )
 
     db.commit()
     logger.info("Préférences mises à jour pour l'utilisateur id=%d", current_user.id)
@@ -1087,7 +1102,7 @@ def export_my_data(
             "consentement_marketing": current_user.consentement_marketing,
             "fin_heureuse_uniquement": current_user.fin_heureuse_uniquement,
             "genres_preferes": profil.genres_preferes,
-            "acteurs_preferes": [a.nom for a in profil.acteurs_preferes],
+            "acteurs_preferes": profil.acteurs_preferes,
         },
         "notes": [
             {
@@ -1290,6 +1305,108 @@ def list_kdrama_genres(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error("Error fetching kdrama genres: %s", e)
         return []
+
+
+# Cache en mémoire des noms d'acteurs extraits du catalogue (voir
+# list_kdrama_actors). La table de référence kdrama.acteurs n'étant pas
+# peuplée par le pipeline de collecte actuel, les noms d'acteurs sont
+# dérivés en direct de la colonne JSON kdramas.acteurs, au même titre que
+# les genres le sont de kdramas.genres. Cette extraction est plus coûteuse
+# que celle des genres (parsing JSON par ligne), d'où le cache à courte
+# durée de vie pour éviter de la refaire à chaque frappe de l'autocomplétion.
+_ACTOR_CATALOG_CACHE: dict[str, Any] = {"names": None, "loaded_at": 0.0}
+_ACTOR_CATALOG_CACHE_TTL_SECONDS = 300.0
+
+
+def _load_actor_catalog_names(db: Session) -> list[str]:
+    """Extrait les noms d'acteurs uniques depuis kdramas.acteurs (JSON), avec cache.
+
+    Args:
+        db: Session de base de données.
+
+    Returns:
+        Liste triée des noms d'acteurs uniques trouvés dans le catalogue.
+    """
+    import time as _time
+    from sqlalchemy import text
+
+    now = _time.monotonic()
+    cached_names = _ACTOR_CATALOG_CACHE.get("names")
+    if (
+        cached_names is not None
+        and (now - _ACTOR_CATALOG_CACHE.get("loaded_at", 0.0)) < _ACTOR_CATALOG_CACHE_TTL_SECONDS
+    ):
+        return cached_names
+
+    result = db.execute(
+        text(
+            "SELECT acteurs FROM kdrama.kdramas WHERE acteurs IS NOT NULL AND acteurs != ''"
+        )
+    )
+    seen: dict[str, None] = {}
+    for (raw_acteurs,) in result.fetchall():
+        try:
+            entries = json.loads(raw_acteurs)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            nom = entry.get("nom")
+            if isinstance(nom, str) and nom.strip():
+                seen.setdefault(nom.strip(), None)
+
+    names = sorted(seen.keys())
+    _ACTOR_CATALOG_CACHE["names"] = names
+    _ACTOR_CATALOG_CACHE["loaded_at"] = now
+    return names
+
+
+@app.get(
+    "/api/v1/kdramas/actors",
+    summary="Actors from K-Dramas catalog",
+    description=(
+        "Returns unique actor names extracted from the kdramas table "
+        "(source of truth), with optional substring search — the actor "
+        "equivalent of /api/v1/kdramas/genres."
+    ),
+)
+def list_kdrama_actors(
+    search: Optional[str] = Query(
+        None, description="Filter actor names by substring (case-insensitive)"
+    ),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of results"),
+    db: Session = Depends(get_db),
+):
+    """Returns unique actor names from the kdramas.acteurs JSON column.
+
+    This mirrors list_kdrama_genres(): the kdrama.acteurs reference table is
+    not populated by the current collection pipeline, so the authoritative
+    list of actor names comes directly from the K-Drama catalog itself.
+
+    Args:
+        search: Optional case-insensitive substring filter (for autocomplete).
+        limit: Maximum number of results to return.
+        db: Session de base de données.
+
+    Returns:
+        List of unique actor names matching the search, source of truth =
+        kdramas.acteurs.
+    """
+    try:
+        names = _load_actor_catalog_names(db)
+    except Exception as e:
+        logger.error("Error fetching kdrama actors: %s", e)
+        return []
+
+    if search:
+        needle = search.strip().lower()
+        if needle:
+            names = [name for name in names if needle in name.lower()]
+
+    return names[:limit]
 
 
 @app.get(

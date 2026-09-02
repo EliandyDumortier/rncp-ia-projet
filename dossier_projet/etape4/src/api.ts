@@ -11,7 +11,6 @@ import type {
   FavoriResponse,
   HistoriqueVisionnageResponse,
   InteretResponse,
-  ActeurSummary,
 } from './types';
 
 export class RecommendationAPIError extends Error {
@@ -386,16 +385,23 @@ export const dataApi = {
     return response.json();
   },
 
-  /** Actor autocomplete: reuses the existing paginated /api/v1/acteurs?search= endpoint. */
-  async searchActeurs(search: string, pageSize: number = 10): Promise<ActeurSummary[]> {
-    const params = new URLSearchParams({ page: '1', page_size: String(pageSize) });
+  /**
+   * Actor autocomplete: derives names live from the K-Drama catalog
+   * (GET /api/v1/kdramas/actors), the actor equivalent of listGenres()'s
+   * GET /api/v1/kdramas/genres — the kdrama.acteurs reference table isn't
+   * populated by the collection pipeline, so catalog-derived names are the
+   * real source of truth (see actor_preferences_by_name_schema.sql).
+   */
+  async searchActeurs(search: string, limit: number = 10): Promise<string[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
     if (search) params.set('search', search);
-    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/acteurs?${params.toString()}`);
+    const response = await fetchWithTimeout(
+      `${API_DATA_URL}/api/v1/kdramas/actors?${params.toString()}`
+    );
     if (!response.ok) {
       throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
     }
-    const data = await response.json();
-    return data.items ?? [];
+    return response.json();
   },
 
   async listFavoris(): Promise<FavoriResponse[]> {

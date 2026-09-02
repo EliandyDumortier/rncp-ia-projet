@@ -68,6 +68,48 @@ def test_list_acteurs():
     assert response.status_code == 200
 
 
+def test_list_kdrama_actors_from_catalog():
+    """Test the genres-style actors endpoint deriving names from kdramas.acteurs."""
+    with patch("api_server.SessionLocal") as mock_session_class, patch(
+        "api_server._ACTOR_CATALOG_CACHE", {"names": None, "loaded_at": 0.0}
+    ):
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+        mock_result = Mock()
+        mock_result.fetchall.return_value = [
+            ('[{"nom": "Song Joong-ki"}, {"nom": "Kim Tae-ri"}]',),
+            ('[{"nom": "Song Joong-ki"}]',),
+        ]
+        mock_session.execute.return_value = mock_result
+
+        response = client.get("/api/v1/kdramas/actors")
+        assert response.status_code == 200
+        data = response.json()
+        assert "Song Joong-ki" in data
+        assert "Kim Tae-ri" in data
+        # Deduplicated: appears once despite being in two rows.
+        assert data.count("Song Joong-ki") == 1
+
+
+def test_list_kdrama_actors_search_filter():
+    """Test that ?search= filters actor names case-insensitively."""
+    with patch("api_server.SessionLocal") as mock_session_class, patch(
+        "api_server._ACTOR_CATALOG_CACHE", {"names": None, "loaded_at": 0.0}
+    ):
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+        mock_result = Mock()
+        mock_result.fetchall.return_value = [
+            ('[{"nom": "Shin Ha-kyun"}, {"nom": "Park Bo-young"}]',),
+        ]
+        mock_session.execute.return_value = mock_result
+
+        response = client.get("/api/v1/kdramas/actors?search=shin")
+        assert response.status_code == 200
+        data = response.json()
+        assert data == ["Shin Ha-kyun"]
+
+
 # ---------------------------------------------------------------------------
 # Sentiment Endpoints Tests
 # ---------------------------------------------------------------------------
@@ -197,7 +239,6 @@ from api_server import (  # noqa: E402
     Favori,
     HistoriqueVisionnage,
     InteretUtilisateur,
-    Acteur,
 )
 
 
@@ -241,7 +282,7 @@ def test_update_preferences_rejects_more_than_5_actors(override_current_user):
     """PATCH preferences must reject more than 5 favorite actors (422)."""
     response = client.patch(
         "/api/v1/auth/me/preferences",
-        json={"acteur_ids": [1, 2, 3, 4, 5, 6]},
+        json={"acteurs": ["A", "B", "C", "D", "E", "F"]},
     )
     assert response.status_code == 422
 
@@ -254,6 +295,7 @@ def test_update_preferences_all_optional(override_current_user):
 
         mock_query = Mock()
         mock_query.join.return_value.filter.return_value.order_by.return_value.all.return_value = []
+        mock_query.filter.return_value.order_by.return_value.all.return_value = []
         mock_query.filter.return_value.count.return_value = 0
         mock_session.query.return_value = mock_query
 

@@ -9,8 +9,6 @@ interface DramaCardProps {
   onViewDetails?: (drama: Drama) => void;
   showAddButton?: boolean;
   rank?: number;
-  predictedRating?: number;
-  score?: number;
   isWatched?: boolean;
   explanation?: string;
 }
@@ -22,8 +20,6 @@ export function DramaCard({
   onViewDetails,
   showAddButton = true,
   rank,
-  predictedRating,
-  score,
   isWatched = false,
   explanation,
 }: DramaCardProps) {
@@ -82,16 +78,6 @@ export function DramaCard({
           <span className="text-xs text-gray-400" aria-hidden="true">&middot;</span>
           <span className="text-xs text-gray-400">{drama.year}</span>
         </div>
-        {predictedRating !== undefined && (
-          <p className="text-xs text-rose-500 font-medium mb-1">
-            Predicted rating: {predictedRating.toFixed(1)}/10
-          </p>
-        )}
-        {score !== undefined && (
-          <p className="text-xs text-violet-500 font-medium mb-1">
-            Score: {(score * 100).toFixed(0)}%
-          </p>
-        )}
         <div className="flex flex-wrap gap-1" role="list" aria-label="Genres">
           {drama.genres.slice(0, 2).map((g) => (
             <span key={g} role="listitem" className="text-[10px] px-2 py-0.5 bg-rose-50 text-rose-600 rounded-full font-medium">

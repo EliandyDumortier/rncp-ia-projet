@@ -127,14 +127,24 @@ psql -U kdrama_user -d kdrama_db -f src/database_schema.sql
 # Extensions de schéma (additives, à appliquer après le schéma de base) :
 psql -U kdrama_user -d kdrama_db -f src/drama_sentiments_schema.sql
 psql -U kdrama_user -d kdrama_db -f src/preferences_favoris_schema.sql
+psql -U kdrama_user -d kdrama_db -f src/actor_preferences_by_name_schema.sql
 ```
 
 > `preferences_favoris_schema.sql` ajoute les préférences de recommandation
 > (genres/acteurs favoris, fin heureuse uniquement), les favoris et le
 > retour d'intérêt utilisateur ("want to watch" / "not interested") décrits
-> dans la section [Conformité RGPD](#conformité-rgpd). Ces deux fichiers
-> sont déjà montés automatiquement par `docker-compose.yml` à la racine du
-> projet ; cette étape manuelle n'est nécessaire que hors Docker.
+> dans la section [Conformité RGPD](#conformité-rgpd).
+>
+> `actor_preferences_by_name_schema.sql` corrige le stockage des acteurs
+> favoris : la table `kdrama.acteurs` n'étant pas peuplée par le pipeline de
+> collecte actuel, les acteurs favoris sont stockés par **nom** (dérivé de
+> `kdramas.acteurs`, comme les genres le sont de `kdramas.genres` via
+> `GET /api/v1/kdramas/genres`) plutôt que par clé étrangère vers une table
+> vide — voir le nouvel endpoint `GET /api/v1/kdramas/actors`.
+>
+> Ces fichiers sont déjà montés automatiquement par `docker-compose.yml` à
+> la racine du projet ; cette étape manuelle n'est nécessaire que hors
+> Docker.
 
 ---
 
@@ -149,6 +159,7 @@ dossier_projet/etape1/
 │   ├── database_schema.sql     # Schéma DDL PostgreSQL conforme RGPD (C4)
 │   ├── drama_sentiments_schema.sql   # Extension : sentiments/ending des dramas
 │   ├── preferences_favoris_schema.sql # Extension : préférences, favoris, intérêt utilisateur
+│   ├── actor_preferences_by_name_schema.sql # Correctif : acteurs favoris stockés par nom
 │   ├── api_server.py           # API REST FastAPI avec JWT (C5)
 │   └── registre_rgpd.md        # Registre des traitements RGPD
 ├── data/

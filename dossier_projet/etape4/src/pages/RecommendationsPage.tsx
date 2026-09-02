@@ -219,8 +219,6 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
                 onToggleFav={toggleFav}
                 onViewDetails={setSelectedDrama}
                 rank={i + 1}
-                predictedRating={d.predicted_rating}
-                score={d.score}
                 isWatched={isWatched(d.id)}
                 explanation={d.explanation}
               />
@@ -330,8 +328,6 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
                 onToggleFav={toggleFav}
                 onViewDetails={setSelectedDrama}
                 rank={i + 1}
-                predictedRating={d.predicted_rating}
-                score={d.score}
                 isWatched={isWatched(d.id)}
                 explanation={d.explanation}
               />

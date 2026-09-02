@@ -32,6 +32,7 @@ services:
       - kdrama-db-data:/var/lib/postgresql/data
       - ./dossier_projet/etape1/src/database_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./dossier_projet/etape1/src/preferences_favoris_schema.sql:/docker-entrypoint-initdb.d/02-preferences-favoris.sql:ro
+      - ./dossier_projet/etape1/src/actor_preferences_by_name_schema.sql:/docker-entrypoint-initdb.d/03-actor-preferences-fix.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kdrama -d kdrama"]
       interval: 10s

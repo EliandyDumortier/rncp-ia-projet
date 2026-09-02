@@ -743,11 +743,10 @@ def fetch_user_preferences(user_id: int, db_url: str | None = None) -> dict[str,
                 conn.execute(
                     text(
                         """
-                        SELECT a.nom AS actor_name
-                        FROM kdrama.utilisateur_acteurs_preferes uap
-                        JOIN kdrama.acteurs a ON a.id = uap.acteur_id
-                        WHERE uap.utilisateur_id = :user_id
-                        ORDER BY a.nom
+                        SELECT acteur_nom AS actor_name
+                        FROM kdrama.utilisateur_acteurs_preferes
+                        WHERE utilisateur_id = :user_id
+                        ORDER BY acteur_nom
                         """
                     ),
                     {"user_id": user_id},

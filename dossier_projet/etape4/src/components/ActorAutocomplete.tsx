@@ -1,21 +1,21 @@
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { ActeurSummary } from '../types';
 import { dataApi } from '../api';
 
 interface ActorAutocompleteProps {
   id?: string;
-  selected: ActeurSummary[];
-  onChange: (selected: ActeurSummary[]) => void;
+  selected: string[];
+  onChange: (selected: string[]) => void;
   maxSelections: number;
   placeholder?: string;
 }
 
 /**
  * Autocomplete input for favorite actors/actresses: the user types a name,
- * suggestions are fetched from the existing actors search endpoint
- * (GET /api/v1/acteurs?search=), and selecting one adds it as a removable
- * chip, up to `maxSelections`.
+ * suggestions are fetched live from the K-Drama catalog
+ * (GET /api/v1/kdramas/actors?search=, derived from kdramas.acteurs — the
+ * actor equivalent of the genres-from-catalog endpoint), and selecting one
+ * adds it as a removable chip, up to `maxSelections`.
  */
 export function ActorAutocomplete({
   id = 'actor-autocomplete',
@@ -25,7 +25,7 @@ export function ActorAutocomplete({
   placeholder = 'Search for an actor or actress…',
 }: ActorAutocompleteProps) {
   const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<ActeurSummary[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,8 +54,8 @@ export function ActorAutocomplete({
       setLoading(true);
       try {
         const results = await dataApi.searchActeurs(query.trim(), 8);
-        const selectedIds = new Set(selected.map((a) => a.id));
-        setSuggestions(results.filter((a) => !selectedIds.has(a.id)));
+        const selectedSet = new Set(selected);
+        setSuggestions(results.filter((name) => !selectedSet.has(name)));
         setOpen(true);
       } catch {
         setSuggestions([]);
@@ -69,16 +69,16 @@ export function ActorAutocomplete({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, atLimit]);
 
-  const selectActor = (actor: ActeurSummary) => {
+  const selectActor = (name: string) => {
     if (atLimit) return;
-    onChange([...selected, actor]);
+    onChange([...selected, name]);
     setQuery('');
     setSuggestions([]);
     setOpen(false);
   };
 
-  const removeActor = (actorId: number) => {
-    onChange(selected.filter((a) => a.id !== actorId));
+  const removeActor = (name: string) => {
+    onChange(selected.filter((a) => a !== name));
   };
 
   return (
@@ -87,17 +87,17 @@ export function ActorAutocomplete({
 
       {selected.length > 0 && (
         <ul className="flex flex-wrap gap-2 mb-2" aria-label="Selected actors">
-          {selected.map((actor) => (
+          {selected.map((name) => (
             <li
-              key={actor.id}
+              key={name}
               className="flex items-center gap-1 pl-3 pr-1 py-1 bg-rose-50 text-rose-600 rounded-full text-sm font-medium"
             >
-              {actor.nom}
+              {name}
               <button
                 type="button"
-                onClick={() => removeActor(actor.id)}
+                onClick={() => removeActor(name)}
                 className="p-1 hover:bg-rose-100 rounded-full"
-                aria-label={`Remove ${actor.nom}`}
+                aria-label={`Remove ${name}`}
               >
                 <X className="w-3 h-3" aria-hidden="true" />
               </button>
@@ -129,17 +129,14 @@ export function ActorAutocomplete({
           {loading ? (
             <li className="px-3 py-2 text-sm text-gray-400">Searching…</li>
           ) : (
-            suggestions.map((actor) => (
-              <li key={actor.id}>
+            suggestions.map((name) => (
+              <li key={name}>
                 <button
                   type="button"
-                  onClick={() => selectActor(actor)}
+                  onClick={() => selectActor(name)}
                   className="w-full text-left px-3 py-2 text-sm hover:bg-rose-50"
                 >
-                  {actor.nom}
-                  {actor.nom_original && actor.nom_original !== actor.nom && (
-                    <span className="text-gray-400"> ({actor.nom_original})</span>
-                  )}
+                  {name}
                 </button>
               </li>
             ))

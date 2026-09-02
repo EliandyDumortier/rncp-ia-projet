@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LogIn, AlertCircle, UserPlus } from 'lucide-react';
-import type { Page, ActeurSummary } from '../types';
+import type { Page } from '../types';
 import { useAuth } from '../auth';
 import { RecommendationAPIError, DataAPIError, dataApi } from '../api';
 import { GenreChipPicker } from '../components/GenreChipPicker';
@@ -28,7 +28,7 @@ export function LoginPage({ nav }: LoginPageProps) {
   // skippable — a user can register without selecting anything here.
   const [allGenres, setAllGenres] = useState<string[]>([]);
   const [onboardGenres, setOnboardGenres] = useState<string[]>([]);
-  const [onboardActors, setOnboardActors] = useState<ActeurSummary[]>([]);
+  const [onboardActors, setOnboardActors] = useState<string[]>([]);
 
   useEffect(() => {
     if (mode !== 'register' || allGenres.length > 0) return;
@@ -93,7 +93,7 @@ export function LoginPage({ nav }: LoginPageProps) {
         try {
           await dataApi.updatePreferences({
             genres: onboardGenres,
-            acteur_ids: onboardActors.map((a) => a.id),
+            acteurs: onboardActors,
           });
         } catch {
           // Non-blocking: the account is still created successfully even if

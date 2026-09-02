@@ -1,6 +1,6 @@
 import { LogOut, Heart, Eye, Sparkles, Star, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { Page, UserProfile, ActeurSummary } from '../types';
+import type { Page, UserProfile } from '../types';
 import { useAuth } from '../auth';
 import { dataApi, DataAPIError } from '../api';
 import { GenreChipPicker } from '../components/GenreChipPicker';
@@ -22,7 +22,7 @@ export function ProfilePage({ nav }: ProfilePageProps) {
 
   const [allGenres, setAllGenres] = useState<string[]>([]);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
-  const [selectedActors, setSelectedActors] = useState<ActeurSummary[]>([]);
+  const [selectedActors, setSelectedActors] = useState<string[]>([]);
   const [happyEndingOnly, setHappyEndingOnly] = useState(false);
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export function ProfilePage({ nav }: ProfilePageProps) {
     try {
       const updated = await dataApi.updatePreferences({
         genres: selectedGenres,
-        acteur_ids: selectedActors.map((a) => a.id),
+        acteurs: selectedActors,
         fin_heureuse_uniquement: happyEndingOnly,
       });
       setProfile(updated);

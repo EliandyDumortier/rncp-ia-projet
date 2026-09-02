@@ -49,21 +49,14 @@ export interface UserProfile {
   consentement_marketing: boolean;
   fin_heureuse_uniquement: boolean;
   genres_preferes: string[];
-  acteurs_preferes: ActeurSummary[];
+  acteurs_preferes: string[];
   nb_dramas_vus: number;
   nb_favoris: number;
 }
 
-export interface ActeurSummary {
-  id: number;
-  nom: string;
-  nom_original: string | null;
-  photo_url?: string | null;
-}
-
 export interface PreferencesUpdateRequest {
   genres?: string[];
-  acteur_ids?: number[];
+  acteurs?: string[];
   fin_heureuse_uniquement?: boolean;
 }
 
