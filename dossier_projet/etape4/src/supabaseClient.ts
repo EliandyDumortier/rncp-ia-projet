@@ -16,9 +16,8 @@ export async function fetchDramasFromSupabase(
     console.log(`[Supabase] Fetching dramas: page=${page}, pageSize=${pageSize}, search=${search}`);
 
     let query = supabase
-      .from('kdramas')
-      .select('*', { count: 'exact' })
-      .schema('kdrama');
+      .from('kdramas', { schema: 'kdrama' })
+      .select('*', { count: 'exact' });
 
     // Add search filter
     if (search) {
