@@ -1,215 +1,202 @@
-# K-Drama IA — Application Web React de Recommandation par IA
+# K-Drama IA — application web React
 
-**Étape 4** — Conception et développement d'une application intégrant un service d'IA
-**Projet** : Système de recommandation de K-Dramas par Intelligence Artificielle
-**Compétences RNCP** : C14, C15, C16, C17, C18, C19
-**Branche Git** : `etape4/application-ia`
+**Étape 4 — RNCP Développeur IA**
+Application web du système de recommandation de K-Dramas. Elle couvre les
+compétences C14 à C19 avec les éléments de conception, de développement, de
+tests, de conteneurisation et de CI/CD disponibles dans ce dépôt.
 
----
+## Rôle de l'application
 
-## Présentation
+L'interface est développée avec React, TypeScript, Vite et Tailwind CSS. Elle
+permet de rechercher et filtrer des K-Dramas, consulter leur détail, gérer un
+compte, des favoris, l'historique et des préférences, puis demander des
+recommandations au modèle IA.
 
-Cette application web **React** (TypeScript + Vite + Tailwind CSS) permet aux
-utilisateurs de rechercher des K-Dramas (séries sud-coréennes), d'obtenir des
-recommandations personnalisées générées par intelligence artificielle, de gérer
-leurs favoris et de consulter leur profil.
+Elle consomme deux services du même projet :
 
-L'application s'intègre au **service d'IA de recommandation** développé à l'étape 3
-(API FastAPI exposant un modèle hybride de recommandation). Elle agit comme un
-client web de cette API, offrant une interface accessible et ergonomique.
+```text
+Navigateur → application React (étape 4)
+                 ├─→ API de données et authentification (étape 1, port 8000)
+                 └─→ API de recommandation IA (étape 3, port 8001)
+                            └─→ modèle de recommandation
+```
 
----
+L'API de données est la source d'autorité pour les comptes et émet le JWT. Ce
+jeton est ensuite transmis à l'API IA pour les routes protégées de
+recommandation.
 
 ## Fonctionnalités
 
-| Fonctionnalité | User story | Description |
-|----------------|-----------|-------------|
-| Recherche par mot-clé | US-01 | Recherche de dramas par titre ou synopsis |
-| Filtre par genre | US-02 | Filtrage des résultats par genre |
-| Dramas populaires | US-03 | Affichage des dramas les mieux notés sur l'accueil |
-| Recommandations IA | US-04 | Recommandations personnalisées basées sur l'historique |
-| Dramas similaires | US-05 | Recommandations basées sur un drama de référence |
-| Gestion des favoris | US-07/08 | Ajout et suppression de favoris |
-| Profil utilisateur | US-09 | Statistiques et historique |
-| Authentification | US-10/11 | Connexion sécurisée via l'API IA (JWT) |
+| Fonctionnalité | Référence |
+|---|---|
+| Recherche textuelle et filtrage par genre | US-01, US-02 |
+| Catalogue et dramas populaires | US-03 |
+| Recommandations personnalisées et similaires | US-04, US-05 |
+| Authentification et inscription par JWT | US-10, US-11 |
+| Favoris, notes, historique et préférences | US-07 à US-09 |
+| Interface clavier, messages d'état et navigation accessible | Critères RGAA documentés |
 
----
+Les spécifications fonctionnelles et les critères d'acceptation sont dans
+[`src/specifications_fonctionnelles.md`](src/specifications_fonctionnelles.md).
+Le backlog est dans [`src/backlog_kanban.md`](src/backlog_kanban.md).
 
 ## Accessibilité
 
-L'application est conforme au **RGAA 4.1** (niveau AA), adaptation française de
-WCAG 2.1. Les critères implémentés incluent :
+L'application intègre notamment un lien d'évitement, des landmarks HTML/ARIA,
+une hiérarchie de titres, des libellés de formulaire, un focus visible, des
+messages `aria-live`, des textes alternatifs et la prise en charge de
+`prefers-reduced-motion`. Ces mesures visent les critères RGAA 4.1 / WCAG 2.1
+AA indiqués dans les spécifications. Elles ne remplacent pas un audit RGAA
+manuel complet.
 
-- Lien d'évitement (skip link) — RGAA 1.6
-- Landmarks ARIA (`banner`, `navigation`, `main`, `contentinfo`)
-- HTML sémantique et valide — RGAA 8.1
-- `lang="en"` déclaré — RGAA 8.6
-- Hiérarchie des titres (`h1` -> `h2` -> `h3`) — RGAA 9.1
-- Listes sémantiques (`ul`, `li`) — RGAA 9.3
-- Contrastes >= 4.5:1 — RGAA 3.1
-- Focus visible (`:focus-visible`) — RGAA 7.1
-- `aria-label` sur les boutons et liens — RGAA 7.1
-- `aria-live` pour les messages flash et d'erreur — RGAA 7.3
-- Texte alternatif sur les images — RGAA 1.2
-- Labels associés aux champs de formulaire — RGAA 11.1
-- Navigation clavier complète — RGAA 7.1
-- Mouvements réduits respectés (`prefers-reduced-motion`)
+## Prérequis
 
----
+- Node.js 22 ou supérieur ;
+- npm ;
+- Docker Desktop et Docker Compose, pour l'exécution conteneurisée ;
+- les API des étapes 1 et 3 pour les fonctions nécessitant des données ou des
+  recommandations réelles.
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│  Navigateur (React + Tailwind CSS + ARIA)        │
-└───────────────────┬─────────────────────────────┘
-                    │ HTTP / fetch
-                    ▼
-┌─────────────────────────────────────────────────┐
-│  API IA (FastAPI — étape 3)                      │
-│  Endpoints : /auth/token, /recommend, /health    │
-└─────────────────────────────────────────────────┘
-
-Persistance locale :
-  - JWT token : localStorage
-  - Favoris : localStorage (par utilisateur)
-```
-
----
-
-## Structure du projet
-
-```text
-rncp-ia-projet/
-├── .github/
-│   └── workflows/
-│       └── ci_cd_app.yml           # Pipeline CI/CD (C19) — root du repository
-├── dossier_projet/
-│   └── etape4/
-│       ├── src/
-│       │   ├── App.tsx                     # Application principale (routing, layout)
-│       │   ├── main.tsx                    # Point d'entrée React
-│       │   ├── index.css                   # Tailwind + animations
-│       │   ├── types.ts                    # Types TypeScript
-│       │   ├── data.ts                     # Catalogue de dramas + utilitaires
-│       │   ├── api.ts                      # Client API IA (auth, recommandations)
-│       │   ├── auth.tsx                    # Contexte d'authentification
-│       │   ├── useFavorites.ts             # Hook de gestion des favoris
-│       │   ├── components/
-│       │   │   ├── Navbar.tsx              # Barre de navigation (RGAA)
-│       │   │   ├── DramaCard.tsx           # Carte de drama (RGAA)
-│       │   │   ├── FeatureCarousel.tsx     # Carrousel d'accueil
-│       │   │   ├── FlashMessages.tsx       # Messages flash (aria-live)
-│       │   │   ├── LoadingSkeleton.tsx     # Squelette de chargement
-│       │   │   ├── SkipLink.tsx            # Lien d'évitement (RGAA 1.6)
-│       │   │   └── DramaCard.test.tsx      # Tests du composant
-│       │   ├── pages/
-│       │   │   ├── HomePage.tsx            # Accueil (carrousel, populaires)
-│       │   │   ├── SearchPage.tsx          # Recherche + filtre
-│       │   │   ├── RecommendationsPage.tsx # Recommandations IA
-│       │   │   ├── FavoritesPage.tsx       # Gestion des favoris
-│       │   │   ├── ProfilePage.tsx         # Profil utilisateur
-│       │   │   └── LoginPage.tsx           # Connexion
-│       │   ├── test/
-│       │   │   └── setup.ts                # Configuration vitest
-│       │   ├── data.test.ts                # Tests des données et utilitaires
-│       │   ├── app.test.tsx                # Tests d'intégration + accessibilité
-│       │   ├── specifications_fonctionnelles.md  # C14 — User stories + RGAA
-│       │   └── backlog_kanban.md           # C16 — Backlog Kanban
-│       ├── docker/
-│       │   └── Dockerfile.app              # Image Docker (node + nginx) (C19)
-│       ├── package.json
-│       ├── vite.config.ts
-│       ├── tailwind.config.js
-│       ├── tsconfig.json
-│       ├── requirements.txt
-│       └── README.md
-```
-
----
-
-## Installation et exécution
-
-### Prérequis
-
-- Node.js 22+
-- L'API IA de l'étape 3 en cours d'exécution (par défaut sur `http://localhost:8001`)
-- L'API DATA de l'étape 1 en cours d'exécution (par défaut sur `http://localhost:8000`)
-
-### Installation locale
+## Installation et exécution locale
 
 ```bash
 cd dossier_projet/etape4
-npm install
+npm ci
 npm run dev
 ```
 
-L'application est accessible sur `http://localhost:5173` (Vite dev server).
+Vite sert alors l'application sur `http://localhost:5173`.
 
-### Exécution avec Docker
+Les valeurs par défaut appellent les services locaux :
+
+| Variable de build Vite | Valeur par défaut | Usage |
+|---|---|---|
+| `VITE_API_DATA_URL` | `http://localhost:8000` | API de données et authentification (étape 1) |
+| `VITE_API_IA_URL` | `http://localhost:8001` | API IA (étape 3) |
+
+Les variables `VITE_*` sont intégrées au bundle au moment du build. Pour une
+image Docker ou un déploiement, fournissez donc les URLs publiques des API avec
+des arguments de build ; les modifier au démarrage du conteneur ne suffit pas.
+
+## Qualité et tests
+
+```bash
+cd dossier_projet/etape4
+npm run lint
+npm run test:coverage
+npm run build
+```
+
+Les tests Vitest couvrent le catalogue et ses utilitaires, le client des APIs,
+le contexte d'authentification, les hooks de favoris et d'historique, ainsi que
+les parcours essentiels et l'accessibilité de l'interface.
+
+Au 2 septembre 2026, la validation locale a produit **44 tests réussis** et la
+couverture V8 suivante :
+
+| Indicateur | Résultat | Seuil bloquant |
+|---|---:|---:|
+| Lignes | 45,25 % | 44 % |
+| Instructions | 45,25 % | 44 % |
+| Branches | 60,54 % | 60 % |
+| Fonctions | 43,16 % | 42 % |
+
+Les seuils sont configurés dans [`vite.config.ts`](vite.config.ts). Les détails
+de reproduction sont dans [`CI_CD_VALIDATION.md`](CI_CD_VALIDATION.md).
+
+## Docker — application seule
+
+Depuis `dossier_projet/etape4` :
 
 ```bash
 docker build -f docker/Dockerfile.app -t kdrama-app:4.0 .
-docker run -p 8080:80 kdrama-app:4.0
+docker run --rm -p 8080:80 kdrama-app:4.0
 ```
 
-L'application est accessible sur `http://localhost:8080`.
-Le bon démarrage se vérifie avec `http://localhost:8080/health`.
-
----
-
-## Tests
+Le conteneur nginx sert l'application sur `http://localhost:8080`. Sa sonde de
+disponibilité est disponible sur :
 
 ```bash
-# Tous les tests avec couverture
-npm run test:coverage
-
-# Tests en mode watch
-npm run test:watch
-
-# Un fichier spécifique
-npx vitest run src/data.test.ts
+curl http://localhost:8080/health
 ```
 
-### Structure des tests
+Pour construire l'image avec des URLs d'API différentes :
 
-| Fichier | Couverture |
-|---------|------------|
-| `data.test.ts` | Données, utilitaires (truncate, stars, formatRating) |
-| `app.test.tsx` | Navigation, recherche, accessibilité RGAA |
-| `DramaCard.test.tsx` | Composant DramaCard (alt, aria-label, h3) |
+```bash
+docker build -f docker/Dockerfile.app -t kdrama-app:4.0 \
+  --build-arg VITE_API_DATA_URL=https://data.example.com \
+  --build-arg VITE_API_IA_URL=https://model.example.com .
+```
 
----
+## Stack locale complète
 
-## Configuration
+Le fichier [`docker-compose.yml`](../../docker-compose.yml), à la racine du
+dépôt, orchestre PostgreSQL, l'API de données (étape 1), l'API de modèle
+(étape 3) et cette application web (étape 4).
 
-### Variables d'environnement
+```bash
+# À la racine rncp-ia-projet
+docker compose up --build
+```
 
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `VITE_API_IA_URL` | `http://localhost:8001` | URL de l'API IA (étape 3) |
-| `VITE_API_DATA_URL` | `http://localhost:8000` | URL de l'API DATA (étape 1) |
+Services exposés localement :
 
----
+| Service | URL |
+|---|---|
+| Application web | `http://localhost:8080` |
+| API de données | `http://localhost:8000/health` |
+| API IA | `http://localhost:8001/health` |
+| PostgreSQL (hôte) | `localhost:5433` |
 
-## Sécurité
+Pour arrêter la stack sans supprimer la base persistante :
 
-- **Mots de passe** : jamais stockés par l'application (délégués à l'API IA).
-- **Tokens JWT** : stockés en localStorage, envoyés en header Authorization.
-- **XSS** : React échappe automatiquement les variables (pas de dangerouslySetInnerHTML).
-- **Validation** : validation des entrées côté client avant soumission.
+```bash
+docker compose down
+```
 
----
+Avant tout déploiement, définissez des valeurs fortes et distinctes pour
+`DB_PASSWORD` et `JWT_SECRET`. Les valeurs de développement du fichier Compose
+ne sont pas adaptées à un environnement exposé.
 
 ## CI/CD
 
-Le pipeline GitHub Actions (`.github/workflows/ci_cd_app.yml`) exécute :
+Le workflow versionné
+[`/.github/workflows/ci_cd_app.yml`](../../.github/workflows/ci_cd_app.yml)
+se déclenche, pour les fichiers de l'étape 4, sur :
 
-1. **Lint** — eslint (style et qualité)
-2. **Test** — vitest avec couverture >= 80 %
-3. **Build** — Construction et push de l'image Docker vers ghcr.io
-4. **Deploy** — Déploiement sur staging (develop) ou production (main)
+- les pushes vers `etape4/integration-app`, `develop` et `main` ;
+- les pull requests vers `develop` et `main`.
 
----
+Il utilise Node.js 22 et enchaîne ESLint, Vitest avec les seuils ci-dessus,
+l'archivage du rapport de couverture pendant 30 jours, puis la construction de
+l'image Docker. Une pull request vérifie l'image sans la publier ; un push de
+branche publie l'image dans GHCR avec le `GITHUB_TOKEN` du workflow.
 
-*Étape 4 — RNCP AI Project — Système de recommandation de K-Dramas par IA.*
+Une exécution GitHub Actions a validé lint, tests avec couverture et build
+Docker sur `etape4/integration-app` (commit `fdec327`). Les jobs de staging et
+de production ne constituent pas encore un déploiement : ils nécessitent une
+cible réelle et les secrets correspondants. Ne les considérez pas comme une
+preuve de livraison distante avant cette configuration et son exécution.
+
+## Sécurité et limites connues
+
+- Les mots de passe ne sont pas stockés par le front-end.
+- Le JWT est conservé dans `localStorage` et envoyé dans l'en-tête
+  `Authorization` aux routes protégées.
+- React échappe les valeurs affichées ; l'application n'utilise pas
+  `dangerouslySetInnerHTML`.
+- Les contrôles côté client améliorent l'expérience utilisateur, mais la
+  validation et l'autorisation doivent rester appliquées par les API.
+- Les avertissements ESLint existants et les avertissements de clés dupliquées
+  dans le catalogue sont volontairement laissés intacts : aucune modification
+  fonctionnelle de l'application n'est incluse dans cette mise à jour.
+
+## Documentation associée
+
+- [`CI_CD_VALIDATION.md`](CI_CD_VALIDATION.md) — reproduction et résultats de
+  validation CI/CD locale ;
+- [`src/specifications_fonctionnelles.md`](src/specifications_fonctionnelles.md)
+  — besoins, scénarios et critères d'acceptation ;
+- [`src/backlog_kanban.md`](src/backlog_kanban.md) — organisation agile ;
+- `dossier_rapports/etape4/audit_etape4.md` — état de conformité et preuves à
+  compléter pour le dossier RNCP.
