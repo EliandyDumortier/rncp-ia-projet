@@ -56,11 +56,11 @@ Le tableau Kanban est organisé en 5 colonnes. Ci-dessous, l'état final du spri
 | US-09 | Profil utilisateur | Should | 3 | Dev A | `feat: profil utilisateur (US-09)` |
 | US-10 | Connexion | Must | 3 | Dev C | `feat: authentification (US-10)` |
 | US-11 | Session persistante | Should | 1 | Dev C | `feat: session persistante (US-11)` |
-| T-01 | Mise en place Flask + structure | Must | 2 | Dev C | `chore: init Flask (T-01)` |
+| T-01 | Mise en place React + TypeScript + Vite | Must | 2 | Dev C | Historique Git E4 |
 | T-02 | Intégration client API IA | Must | 3 | Dev B | `feat: client API IA (T-02)` |
-| T-03 | Templates accessibles (base) | Must | 2 | Dev A | `feat: template base accessible (T-03)` |
+| T-03 | Composants React accessibles (ARIA, skip link) | Must | 2 | Dev A | Historique Git E4 |
 | T-04 | CSS responsive + contrastes | Must | 3 | Dev A | `feat: css responsive (T-04)` |
-| T-05 | Suite de tests pytest | Must | 3 | Dev C | `test: suite pytest (T-05)` |
+| T-05 | Suite de tests Vitest et Testing Library | Must | 3 | Dev C | `f9d695c`, `c0ef65a` |
 | T-06 | Pipeline CI/CD GitHub Actions | Must | 2 | Dev C | `ci: pipeline github actions (T-06)` |
 | T-07 | Dockerfile app | Must | 1 | Dev B | `build: dockerfile app (T-07)` |
 
@@ -90,11 +90,11 @@ Le tableau Kanban est organisé en 5 colonnes. Ci-dessous, l'état final du spri
 
 | ID | Titre | Priorité | SP | Statut |
 |----|-------|----------|----|--------|
-| T-01 | Mise en place Flask + structure projet | Must | 2 | Terminé |
+| T-01 | Mise en place React + TypeScript + Vite | Must | 2 | Terminé |
 | T-02 | Intégration client API IA (RecommendationClient) | Must | 3 | Terminé |
-| T-03 | Templates accessibles (base.html, ARIA, skip link) | Must | 2 | Terminé |
+| T-03 | Composants accessibles (landmarks, ARIA, skip link) | Must | 2 | Terminé |
 | T-04 | CSS responsive + contrastes RGAA | Must | 3 | Terminé |
-| T-05 | Suite de tests pytest (routes + flux) | Must | 3 | Terminé |
+| T-05 | Suite de tests Vitest (composants, clients API et hooks) | Must | 3 | En amélioration |
 | T-06 | Pipeline CI/CD GitHub Actions | Must | 2 | Terminé |
 | T-07 | Dockerfile app | Must | 1 | Terminé |
 | T-08 | Internationalisation (i18n) | Won't | 5 | Backlog |
@@ -130,7 +130,7 @@ Le tableau Kanban est organisé en 5 colonnes. Ci-dessous, l'état final du spri
 - **Durée** : 45 min
 - **Format** : Ce qui a bien fonctionné / à améliorer / actions concrètes
 - **Actions issues** :
-  1. Mettre en place un linter (ruff) dès le premier commit → **réalisé**.
+  1. Mettre en place ESLint dès le premier commit → **réalisé**.
   2. Écrire les tests en parallèle du dev (TDD léger) → **partiellement réalisé**, à généraliser à l'étape 5.
   3. Documenter l'accessibilité dans le DoD → **réalisé**.
 
@@ -140,13 +140,13 @@ Le tableau Kanban est organisé en 5 colonnes. Ci-dessous, l'état final du spri
 
 Une user story est « terminée » si et seulement si :
 
-1. ✅ Le code est implémenté et respecte les conventions (validé par `ruff`).
-2. ✅ Les tests unitaires et fonctionnels sont écrits et passent (couverture ≥ 80 %).
-3. ✅ La user story est validée manuellement contre ses critères d'acceptation.
-4. ✅ Les critères d'accessibilité RGAA sont vérifiés (test clavier + lecteur d'écran).
-5. ✅ Le code est revu par au moins un autre membre (peer review).
-6. ✅ La documentation (docstrings, README) est mise à jour.
-7. ✅ Le code est fusionné sur la branche `etape4/application-ia`.
+1. Le code est implémenté et respecte les conventions, avec ESLint sans erreur.
+2. Les tests Vitest passent et les seuils versionnés sont respectés ; la cible projet reste 80 %.
+3. La user story est vérifiée manuellement contre ses critères d'acceptation et la preuve est conservée.
+4. Les critères d'accessibilité applicables sont vérifiés au clavier et avec un lecteur d'écran.
+5. Le code est revu par au moins une autre personne lorsque le contexte d'équipe le permet.
+6. La documentation et la matrice de traçabilité sont mises à jour.
+7. La CI est verte sur `etape4/integration-app`, puis le code est fusionné dans `develop`.
 
 ---
 
@@ -155,7 +155,7 @@ Une user story est « terminée » si et seulement si :
 | Risque | Probabilité | Impact | Mitigation | Statut |
 |--------|------------|--------|------------|--------|
 | Indisponibilité de l'API IA | Moyenne | Élevé | Client HTTP retry + fallback (dramas populaires) | Maîtrisé |
-| Non-conformité RGAA | Faible | Élevé | Audit manuel + tests d'accessibilité | Maîtrisé |
+| Non-conformité RGAA | Moyenne | Élevé | Audit manuel + tests d'accessibilité | En cours |
 | Latence API > 500 ms | Moyenne | Moyen | Cache + squelette de chargement | Maîtrisé |
 | Conflits Git | Faible | Faible | Branches courtes, revues rapides | Maîtrisé |
 | Couverture tests < 80 % | Faible | Moyen | Tests écrits en parallèle du dev | Surveillé |
@@ -181,11 +181,11 @@ Le sprint s'est terminé à temps, avec une légère avance sur l'idéal aux jou
 
 | Métrique | Cible | Réalisé |
 |----------|-------|---------|
-| Couverture de tests | ≥ 80 % | 85 % |
-| Linting (ruff) | 0 erreur | 0 erreur |
-| Conformité RGAA (audit manuel) | Niveau AA | Niveau AA |
-| Temps de réponse moyen (accueil) | < 1 s | 0,4 s |
-| Temps de réponse moyen (recommandations) | < 3 s | 1,2 s |
+| Couverture de tests | ≥ 80 % | 45,65 % lignes au 2 septembre 2026 |
+| Linting ESLint | 0 erreur | 0 erreur, 6 avertissements |
+| Conformité RGAA (audit manuel) | Niveau AA | À auditer manuellement |
+| Temps de réponse moyen (accueil) | < 1 s | À mesurer en préproduction |
+| Temps de réponse moyen (recommandations) | < 3 s | À mesurer en préproduction |
 
 ---
 

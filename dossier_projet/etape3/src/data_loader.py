@@ -37,6 +37,9 @@ for _env_path in (
 
 RANDOM_STATE = 42
 MIN_REAL_INTERACTIONS = 25
+# Synthetic profiles are training-only data. Negative IDs keep them in a
+# namespace that can never collide with the positive IDs issued to real users.
+SYNTHETIC_USER_ID_START = -1
 
 
 def _is_env_true(var_name: str, default: bool = False) -> bool:
@@ -606,7 +609,8 @@ def generate_interactions_from_catalog(
     mean_scores = dramas_df["note_moyenne"].fillna(7.0).tolist()
 
     interactions_data: list[dict[str, Any]] = []
-    for user_id in range(1, num_users + 1):
+    for synthetic_index in range(num_users):
+        user_id = SYNTHETIC_USER_ID_START - synthetic_index
         n_interactions = max(1, int(rng.poisson(avg_interactions_per_user)))
         n_interactions = min(n_interactions, len(drama_ids))
         chosen_indices = rng.choice(len(drama_ids), size=n_interactions, replace=False)
@@ -932,14 +936,21 @@ def load_real_data(
         if len(interactions_df) < MIN_REAL_INTERACTIONS:
             logger.warning(
                 "Seulement %d interactions réelles détectées (< %d). "
-                "Fallback vers le générateur synthétique.",
+                "Complément avec des interactions synthétiques isolées.",
                 len(interactions_df),
                 MIN_REAL_INTERACTIONS,
             )
-            interactions_df = generate_interactions_from_catalog(
+            synthetic_interactions = generate_interactions_from_catalog(
                 dramas_df,
                 num_users=num_users,
                 avg_interactions_per_user=avg_interactions_per_user,
+            )
+            # Keep the few genuine signals instead of replacing them. The
+            # synthetic negative IDs enrich collaborative training without
+            # ever being mistaken for a real account at inference time.
+            interactions_df = pd.concat(
+                [interactions_df, synthetic_interactions],
+                ignore_index=True,
             )
     except Exception as exc:
         logger.warning(

@@ -34,11 +34,52 @@ services:
       - ./dossier_projet/etape1/src/preferences_favoris_schema.sql:/docker-entrypoint-initdb.d/02-preferences-favoris.sql:ro
       - ./dossier_projet/etape1/src/actor_preferences_by_name_schema.sql:/docker-entrypoint-initdb.d/03-actor-preferences-fix.sql:ro
       - ./dossier_projet/etape1/src/genre_preferences_by_name_schema.sql:/docker-entrypoint-initdb.d/04-genre-preferences-fix.sql:ro
+      - ./dossier_projet/etape1/src/drama_sentiments_schema.sql:/docker-entrypoint-initdb.d/05-drama-sentiments.sql:ro
+      - ./dossier_projet/etape1/src/docker_compatibility_schema.sql:/docker-entrypoint-initdb.d/06-docker-compatibility.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kdrama -d kdrama"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - kdrama-net
+
+  # Apply additive migrations on every startup. PostgreSQL only executes
+  # /docker-entrypoint-initdb.d for a brand-new volume, so this also upgrades
+  # an existing local volume without deleting user accounts.
+  db-migrate:
+    image: postgres:15-alpine
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-kdrama_dev_2026}
+    volumes:
+      - ./dossier_projet/etape1/src/preferences_favoris_schema.sql:/migrations/02-preferences-favoris.sql:ro
+      - ./dossier_projet/etape1/src/actor_preferences_by_name_schema.sql:/migrations/03-actor-preferences.sql:ro
+      - ./dossier_projet/etape1/src/genre_preferences_by_name_schema.sql:/migrations/04-genre-preferences.sql:ro
+      - ./dossier_projet/etape1/src/drama_sentiments_schema.sql:/migrations/05-drama-sentiments.sql:ro
+      - ./dossier_projet/etape1/src/docker_compatibility_schema.sql:/migrations/06-docker-compatibility.sql:ro
+    command: >-
+      sh -c "for migration in /migrations/*.sql; do
+      psql -v ON_ERROR_STOP=1 -h db -U kdrama -d kdrama -f $$migration;
+      done"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - kdrama-net
+
+  # Import the versioned real catalogue only when the local database is empty.
+  data-seed:
+    build:
+      context: ./dossier_projet/etape1
+      dockerfile: docker/Dockerfile.api
+    environment:
+      DATABASE_URL: postgresql+psycopg2://kdrama:${DB_PASSWORD:-kdrama_dev_2026}@db:5432/kdrama
+    command: ["python", "/app/src/seed_database.py"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    restart: "no"
     networks:
       - kdrama-net
 
@@ -60,8 +101,8 @@ services:
       API_HOST: "0.0.0.0"
       API_PORT: "8000"
     depends_on:
-      db:
-        condition: service_healthy
+      data-seed:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -85,19 +126,20 @@ services:
     environment:
       JWT_SECRET_KEY: ${JWT_SECRET:-change-me-in-production}
       DATABASE_URL: postgresql+psycopg2://kdrama:${DB_PASSWORD:-kdrama_dev_2026}@db:5432/kdrama
+      CORS_ALLOWED_ORIGINS: "http://localhost:8080,http://localhost:5173"
       API_HOST: "0.0.0.0"
       API_PORT: "8001"
       USER_PASSWORD: "user123"
       ADMIN_PASSWORD: "admin123"
     depends_on:
-      db:
-        condition: service_healthy
+      data-seed:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
-      start_period: 40s
-      retries: 3
+      start_period: 180s
+      retries: 5
     networks:
       - kdrama-net
 
@@ -121,7 +163,7 @@ services:
       model-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

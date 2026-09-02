@@ -102,11 +102,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Exposition du port
 EXPOSE 8001
 
-# Commande de démarrage : uvicorn avec gunicorn pour la production
-# Utilisation de workers multiples pour la concurrence
+# Un seul worker charge le modèle en mémoire. Plusieurs workers dupliqueraient
+# l'entraînement et la RAM (particulièrement coûteux sur Render).
 CMD ["gunicorn", "model_api:app", \
      "--bind", "0.0.0.0:8001", \
-     "--workers", "4", \
+     "--workers", "1", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--timeout", "120", \
      "--keep-alive", "5", \

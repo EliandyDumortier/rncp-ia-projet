@@ -23,6 +23,11 @@ const MAX_RESULTS_PER_SECTION = 4;
 // marked disliked, we still have enough to show.
 const POOL_BUFFER_SIZE = MAX_RESULTS_PER_SECTION * 10;
 
+const HISTORY_RECOMMENDATION_MESSAGE =
+  'Recommended from your preferences and watch history.';
+const SELECTION_RECOMMENDATION_MESSAGE =
+  'Matches your current mood and keyword selection.';
+
 const MOOD_GENRES = [
   { label: 'Comfort', emoji: '🪴' },
   { label: 'Cry', emoji: '😭' },
@@ -135,7 +140,6 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
     try {
       const moodText = selectedMoods.join(', ') || undefined;
       const result = await apiClient.getRecommendations({
-        user_id: user.user_id,
         top_k: POOL_BUFFER_SIZE,
         mood: moodText,
         text: description.trim() || undefined,
@@ -252,7 +256,7 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
                 onViewDetails={setSelectedDrama}
                 rank={i + 1}
                 isWatched={isWatched(d.id)}
-                explanation={d.explanation}
+                explanation={HISTORY_RECOMMENDATION_MESSAGE}
               />
             ))}
           </div>
@@ -354,7 +358,7 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
                 onViewDetails={setSelectedDrama}
                 rank={i + 1}
                 isWatched={isWatched(d.id)}
-                explanation={d.explanation}
+                explanation={SELECTION_RECOMMENDATION_MESSAGE}
               />
             ))}
           </div>

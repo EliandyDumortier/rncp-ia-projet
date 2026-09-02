@@ -818,8 +818,10 @@ async def recommend(
     start_time = time.time()
     request_id = f"req-{int(start_time * 1000)}"
 
-    authenticated_user_id = _extract_real_user_id(current_user)
-    effective_user_id = req.user_id if req.user_id is not None else authenticated_user_id
+    # Authentication authorizes the request; it must not silently turn an
+    # explicit mood/text search into a history-based recommendation. A caller
+    # opts into personalization by sending user_id.
+    effective_user_id = req.user_id
 
     stored_preferences = (
         fetch_user_preferences(effective_user_id)

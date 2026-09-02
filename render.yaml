@@ -1,0 +1,60 @@
+services:
+  - type: web
+    name: kdrama-data-api-e4
+    runtime: docker
+    region: frankfurt
+    plan: free
+    dockerfilePath: ./dossier_projet/etape1/docker/Dockerfile.api
+    dockerContext: ./dossier_projet/etape1
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: "8000"
+
+  - type: web
+    name: kdrama-model-api-e4
+    runtime: docker
+    region: frankfurt
+    # Sentence-transformers and PyTorch exceed a typical 512 MB free instance.
+    plan: 1c-2g
+    dockerfilePath: ./dossier_projet/etape3/docker/Dockerfile.model
+    dockerContext: ./dossier_projet/etape3
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      # Enter exactly the same value as JWT_SECRET on the data API.
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: "8001"
+
+  - type: web
+    name: kdrama-web-app-e4
+    runtime: docker
+    region: frankfurt
+    plan: free
+    dockerfilePath: ./dossier_projet/etape4/docker/Dockerfile.app
+    dockerContext: ./dossier_projet/etape4
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      # Public HTTPS URLs of the two services above; Vite embeds them at build.
+      - key: VITE_API_DATA_URL
+        sync: false
+      - key: VITE_API_IA_URL
+        sync: false

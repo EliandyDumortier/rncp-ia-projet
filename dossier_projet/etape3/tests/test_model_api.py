@@ -560,7 +560,7 @@ class TestRecommendEndpoint:
         for rec in data["recommendations"]:
             assert rec["explanation"]
 
-    def test_recommend_accepts_numeric_sub_not_in_demo_users(
+    def test_text_request_without_user_id_stays_discovery_mode(
         self,
         client: TestClient,
         numeric_auth_headers: dict[str, str],
@@ -588,7 +588,7 @@ class TestRecommendEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["mode"] == "user"
+        assert data["mode"] == "discovery"
         assert data["count"] <= 4
         assert len(data["recommendations"]) <= 4
         assert all(rec["explanation"] for rec in data["recommendations"])
@@ -927,6 +927,14 @@ class TestRecommendationModel:
             assert info is not None
             assert info["ending_type"] == "happy"
             assert result.explanation
+
+    def test_history_matrix_is_not_presented_as_explicit_user_likes(
+        self, trained_model: HybridRecommender
+    ) -> None:
+        """Training interactions must never be presented as explicit user likes."""
+        results = trained_model.recommend(user_id=1, top_k=4, user_preferences={})
+        assert results
+        assert all("Because you liked" not in result.explanation for result in results)
 
     def test_recommend_request_accepts_new_fields(self) -> None:
         """RecommendRequest doit accepter les nouveaux champs optionnels."""

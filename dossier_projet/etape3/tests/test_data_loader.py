@@ -328,6 +328,7 @@ def test_generate_interactions_output_shape_and_bounds() -> None:
     assert not interactions_df.empty
     assert set(interactions_df.columns) == {"user_id", "drama_id", "rating"}
     assert interactions_df["user_id"].nunique() == 10
+    assert (interactions_df["user_id"] < 0).all()
     assert interactions_df["rating"].between(1.0, 10.0).all()
     assert interactions_df.duplicated(subset=["user_id", "drama_id"]).sum() == 0
 
@@ -453,7 +454,7 @@ def test_load_real_data_falls_back_to_synthetic_when_real_insufficient(
     )
     real_interactions = pd.DataFrame({"user_id": [1], "drama_id": [1], "rating": [9.0]})
     synthetic_interactions = pd.DataFrame(
-        {"user_id": [1, 2], "drama_id": [1, 2], "rating": [8.0, 7.5]}
+        {"user_id": [-1, -2], "drama_id": [1, 2], "rating": [8.0, 7.5]}
     )
 
     monkeypatch.setattr(data_loader, "load_dramas_from_etape1", lambda *_args, **_kwargs: dramas_df)
@@ -469,7 +470,8 @@ def test_load_real_data_falls_back_to_synthetic_when_real_insufficient(
     )
 
     _, got_interactions = data_loader.load_real_data(db_url="postgresql://fake")
-    assert got_interactions is synthetic_interactions
+    assert len(got_interactions) == 3
+    assert set(got_interactions["user_id"]) == {1, -1, -2}
 
 
 def test_load_real_data_orchestration_falls_back_on_interaction_error(

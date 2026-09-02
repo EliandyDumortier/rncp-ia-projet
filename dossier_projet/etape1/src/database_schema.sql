@@ -45,6 +45,7 @@ CREATE TABLE kdrama.kdramas (
     tmdb_id                     INTEGER UNIQUE,
     titre                       VARCHAR(300) NOT NULL,
     titre_original              VARCHAR(300),
+    english_name                VARCHAR(300),
     date_diffusion              DATE,
     annee_diffusion             INTEGER,
     -- Colonnes de métadonnées issues de l'agrégation (stockées au format JSON)
@@ -55,14 +56,20 @@ CREATE TABLE kdrama.kdramas (
     nb_episodes                 INTEGER CHECK (nb_episodes IS NULL OR nb_episodes > 0),
     nb_saisons                  INTEGER CHECK (nb_saisons IS NULL OR nb_saisons > 0),
     duree_episode_minutes       INTEGER CHECK (duree_episode_minutes IS NULL OR duree_episode_minutes > 0),
+    duree_episode               INTEGER CHECK (duree_episode IS NULL OR duree_episode > 0),
     synopsis                    TEXT,
-    note_moyenne                NUMERIC(3, 2) CHECK (note_moyenne IS NULL OR (note_moyenne >= 0 AND note_moyenne <= 10)),
+    note_moyenne                NUMERIC(4, 2) CHECK (note_moyenne IS NULL OR (note_moyenne >= 0 AND note_moyenne <= 10)),
     nb_votes                    INTEGER CHECK (nb_votes IS NULL OR nb_votes >= 0),
     langue_originale            VARCHAR(10),
     pays_origine                VARCHAR(10) DEFAULT 'KR',
     source                      VARCHAR(50) NOT NULL DEFAULT 'tmdb',
     url_source                  VARCHAR(500),
     poster                      VARCHAR(500),
+    rang                        INTEGER,
+    popularite                  DOUBLE PRECISION,
+    nb_watchers                 INTEGER,
+    realisateur                 VARCHAR(300),
+    scenariste                  VARCHAR(300),
     date_creation               TIMESTAMP NOT NULL DEFAULT NOW(),
     date_modification           TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -202,6 +209,7 @@ CREATE TABLE kdrama.utilisateurs (
     date_suppression            TIMESTAMP,
     -- Indicateur de compte supprimé/anonymisé (soft delete pour l'intégrité référentielle)
     est_supprime                BOOLEAN NOT NULL DEFAULT FALSE,
+    fin_heureuse_uniquement     BOOLEAN NOT NULL DEFAULT FALSE,
     -- Métadonnées
     date_creation               TIMESTAMP NOT NULL DEFAULT NOW(),
     date_modification           TIMESTAMP NOT NULL DEFAULT NOW()

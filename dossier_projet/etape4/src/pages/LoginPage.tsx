@@ -107,7 +107,7 @@ export function LoginPage({ nav }: LoginPageProps) {
       if (err instanceof DataAPIError) {
         setError(err.message);
       } else if (err instanceof RecommendationAPIError) {
-        setError('Account created but AI API connection failed. Please try again.');
+        setError('Account created, but automatic sign-in failed. Please sign in with your new account.');
       } else {
         setError('An unexpected error occurred.');
       }

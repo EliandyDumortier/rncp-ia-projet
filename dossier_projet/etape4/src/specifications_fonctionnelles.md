@@ -10,7 +10,7 @@
 
 ## 1. Objectif du document
 
-Ce document formalise les spécifications fonctionnelles de l'application web développée à l'étape 4. Il sert de **contrat** entre les parties prenantes (Product Owner, équipe de développement, validateur d'accessibilité) et alimente directement le backlog agile (`backlog_kanban.md`) et la suite de tests (`tests/test_app.py`).
+Ce document formalise les spécifications fonctionnelles de l'application web développée à l'étape 4. Il sert de **contrat** entre les parties prenantes (Product Owner, équipe de développement, validateur d'accessibilité) et alimente directement le backlog agile (`backlog_kanban.md`) et la suite de tests Vitest (`src/*.test.ts`, `src/*.test.tsx`).
 
 Il couvre :
 
@@ -158,7 +158,7 @@ Chaque user story suit le format : *« En tant que [rôle], je veux [action], af
 - **Story points** : 2
 - **Critères d'acceptation** :
   - AC1 : Un bouton « Ajouter aux favoris » est présent sur chaque carte.
-  - AC2 : L'ajout est persistant (base SQLite locale).
+  - AC2 : L'ajout est persistant via l'API de données FastAPI et PostgreSQL ; un cache `localStorage` maintient temporairement l'interface hors ligne.
   - AC3 : Un message de confirmation s'affiche.
 - **Critères d'accessibilité** :
   - ACC1 : Le bouton a un `aria-label` (RGAA 7.1).
@@ -198,8 +198,8 @@ Chaque user story suit le format : *« En tant que [rôle], je veux [action], af
 - **Priorité** : Must
 - **Story points** : 3
 - **Critères d'acceptation** :
-  - AC1 : La page `/login` propose un formulaire (nom d'utilisateur, mot de passe).
-  - AC2 : L'authentification est déléguée à l'API IA (`POST /auth/token`).
+  - AC1 : La vue `login` propose un formulaire (nom d'utilisateur, mot de passe).
+  - AC2 : L'authentification est déléguée à l'API de données (`POST /api/v1/auth/login`) qui émet un JWT également accepté par l'API IA.
   - AC3 : En cas d'erreur, un message s'affiche sans révéler la cause exacte (sécurité).
   - AC4 : Après connexion, l'utilisateur est redirigé vers la page demandée ou l'accueil.
 - **Critères d'accessibilité** :
@@ -214,8 +214,8 @@ Chaque user story suit le format : *« En tant que [rôle], je veux [action], af
 - **Priorité** : Should
 - **Story points** : 1
 - **Critères d'acceptation** :
-  - AC1 : La session Flask persiste 7 jours (cookie permanent).
-  - AC2 : Le bouton « Se déconnecter » invalide la session.
+  - AC1 : Le JWT et l'identité minimale sont conservés dans `localStorage` afin de restaurer la session au rechargement.
+  - AC2 : Le bouton « Se déconnecter » supprime le JWT et les données de session locales.
 - **Critères d'accessibilité** : N/A.
 
 ---
@@ -227,10 +227,10 @@ Chaque user story suit le format : *« En tant que [rôle], je veux [action], af
 | Performance | Time to Interactive (TTI) | < 3 s sur 4G |
 | Performance | Latence API IA (p95) | < 500 ms |
 | Disponibilité | Taux de disponibilité | 99,5 % |
-| Sécurité | Stockage mots de passe | Hash bcrypt + sel (côté API IA) |
-| Sécurité | Tokens JWT | Session Flask côté serveur, jamais exposés au navigateur |
-| Sécurité | Protection CSRF | Token CSRF sur formulaires |
-| Sécurité | Protection XSS | Auto-échappement Jinja2 |
+| Sécurité | Stockage mots de passe | Hash bcrypt côté API de données ; aucun mot de passe stocké dans React |
+| Sécurité | Tokens JWT | JWT émis par l'API de données, conservé dans `localStorage` et envoyé par en-tête `Authorization` |
+| Sécurité | Protection CSRF | API sans cookie de session ; contrôle CORS restrictif sur les deux API |
+| Sécurité | Protection XSS | Échappement React ; aucun `dangerouslySetInnerHTML` |
 | Accessibilité | Conformité | RGAA 4.1 niveau AA |
 | Compatibilité | Navigateurs | Chrome, Firefox, Safari, Edge (2 dernières versions) |
 | Maintenabilité | Couverture de tests | ≥ 80 % |
@@ -244,14 +244,14 @@ Les critères RGAA 4.1 les plus structurants pour l'application sont listés ci-
 
 | Thème | Critère | Exigence | Implémentation |
 |-------|---------|----------|----------------|
-| 1. Architecture | 1.1 | Titre de page pertinent | `<title>` unique par template |
+| 1. Architecture | 1.1 | Titre de page pertinent | `document.title` actualisé pour chaque vue React |
 | 1. Architecture | 1.3 | Menu de navigation | `<nav aria-label>` |
 | 1. Architecture | 1.6 | Lien d'évitement | Skip link en premier élément |
 | 3. Couleurs | 3.1 | Contraste ≥ 4.5:1 | Variables CSS testées |
 | 3. Couleurs | 3.2 | Info non portée par la couleur seule | Icônes + texte |
 | 7. Scripts | 7.1 | Composants accessibles au clavier | `:focus-visible`, `tabindex` |
 | 7. Scripts | 7.3 | Messages de statut annoncés | `aria-live` |
-| 8. Éléments | 8.1 | HTML valide | Templates Jinja2 valides |
+| 8. Éléments | 8.1 | HTML valide | HTML Vite et composants JSX/TSX valides |
 | 8. Éléments | 8.6 | `lang` déclaré | `<html lang="en-us
 | 9. Structuration | 9.1 | Hiérarchie des titres | `h1` → `h2` → `h3` |
 | 9. Structuration | 9.3 | Listes sémantiques | `<ul>`, `<ol>`, `<li>` |
@@ -268,8 +268,8 @@ Les critères RGAA 4.1 les plus structurants pour l'application sont listés ci-
 1. Utilisateur arrive sur `/` (accueil).
 2. Clic sur « Mes recommandations » → `/recommendations`.
 3. Si non connecté → redirection `/login` avec message flash.
-4. Saisie des identifiants → validation via API IA → session créée.
-5. Redirection `/recommendations` → appel API IA → affichage des 10 recommandations.
+4. Saisie des identifiants → validation via l'API de données → JWT partagé créé.
+5. Retour à la vue des recommandations → appel API IA → affichage d'une sélection limitée à 4 résultats par section.
 6. Utilisateur ajoute un drama aux favoris → message de confirmation.
 
 ### 6.2 Parcours de recherche
@@ -289,15 +289,15 @@ Les critères RGAA 4.1 les plus structurants pour l'application sont listés ci-
 
 ## 7. Matrice de traçabilité
 
-| User story | Route | Template | Test | Critère RGAA |
+| User story | Vue React | Composant principal | Test | Critère RGAA |
 |-----------|-------|----------|------|--------------|
-| US-01 | `/search` | `home.html` | `test_search` | 11.1, 7.3 |
-| US-03 | `/` | `home.html` | `test_home_page` | 1.2, 9.1 |
-| US-04 | `/recommendations` | `recommendations.html` | `test_recommendations_page_authenticated` | 7.1, 7.3, 9.1 |
-| US-07 | `/favorites` (POST) | `home.html` | `test_add_favorite` | 7.1, 7.3 |
-| US-08 | `/favorites` | `home.html` | `test_favorites_page` | 9.3 |
-| US-09 | `/profile` | `home.html` | `test_profile_page` | 9.3 |
-| US-10 | `/login` | `home.html` | `test_login_success` | 11.1, 7.3 |
+| US-01 | `search` | `SearchPage.tsx` | `app.test.tsx`, `data.test.ts` | 11.1, 7.3 |
+| US-03 | `home` | `HomePage.tsx` | `app.test.tsx` | 1.2, 9.1 |
+| US-04 | `recommendations` | `RecommendationsPage.tsx` | `api.test.ts` (parcours UI à compléter) | 7.1, 7.3, 9.1 |
+| US-07 | cartes et vues privées | `DramaCard.tsx`, `useFavorites.ts` | `api.test.ts`, `hooks.test.ts` | 7.1, 7.3 |
+| US-08 | `favorites` | `FavoritesPage.tsx` | `hooks.test.ts` (parcours UI à compléter) | 9.3 |
+| US-09 | `profile` | `ProfilePage.tsx` | test d'intégration à compléter | 9.3 |
+| US-10 | `login` | `LoginPage.tsx`, `auth.tsx` | `auth.test.tsx`, `api.test.ts` | 11.1, 7.3 |
 
 ---
 

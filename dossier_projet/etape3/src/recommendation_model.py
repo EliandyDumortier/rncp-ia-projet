@@ -208,10 +208,13 @@ class HybridRecommender:
         )
         query_text = self._build_query_text(mood, text, resolved_genres, resolved_actors, resolved_happy)
 
-        positive_seed_ids = self._unique_ints(
+        favorite_seed_ids = self._unique_ints(
             user_preferences.get("favorite_drama_ids", [])
-            + user_preferences.get("interested_drama_ids", [])
         )
+        interested_seed_ids = self._unique_ints(
+            user_preferences.get("interested_drama_ids", [])
+        )
+        positive_seed_ids = self._unique_ints(favorite_seed_ids + interested_seed_ids)
         negative_seed_ids = self._unique_ints(user_preferences.get("disliked_drama_ids", []))
 
         if user_id is not None and negative_seed_ids:
@@ -246,6 +249,10 @@ class HybridRecommender:
                 extra_negative_ids=negative_seed_ids,
             )
             mode = "user"
+            # The trained matrix may contain synthetic or stale interactions.
+            # Only explicit, live preferences are safe to mention in an
+            # explanation shown to the user.
+            explanation_seed_ids = positive_seed_ids
         elif drama_id is not None:
             base_scores, exclude_ids, liked_ids = self._score_for_drama(
                 drama_id=drama_id,
@@ -253,6 +260,7 @@ class HybridRecommender:
                 extra_negative_ids=negative_seed_ids,
             )
             mode = "item"
+            explanation_seed_ids = liked_ids
         else:
             base_scores = self._popular_scores()
             exclude_ids = set(negative_seed_ids)
@@ -261,6 +269,7 @@ class HybridRecommender:
                 seeded_scores = self._seed_similarity_scores(positive_seed_ids)
                 base_scores = 0.65 * seeded_scores + 0.35 * base_scores
             mode = "discovery"
+            explanation_seed_ids = positive_seed_ids
 
         scores = base_scores.copy()
         before_count = len(scores)
@@ -315,7 +324,7 @@ class HybridRecommender:
             explanation = self._build_explanation(
                 drama_id=int(candidate_id),
                 mode=mode,
-                liked_ids=liked_ids,
+                liked_ids=explanation_seed_ids,
                 requested_genres=resolved_genres or [],
                 requested_actors=resolved_actors or [],
                 happy_ending_only=bool(resolved_happy),
@@ -842,12 +851,14 @@ class HybridRecommender:
         parts: list[str] = []
 
         similar_titles = self._top_similar_seed_titles(drama_id, liked_ids)
-        if similar_titles:
-            parts.append(f"Because you liked {', '.join(similar_titles)}")
-        elif mode == "item" and liked_ids:
+        if mode == "item" and liked_ids:
             seed_title = self._get_drama_title(liked_ids[0])
             if seed_title:
                 parts.append(f"Close in style to {seed_title}")
+        elif similar_titles:
+            parts.append(
+                f"Similar to {', '.join(similar_titles)} from your saved preferences"
+            )
 
         if genre_match and requested_genres:
             parts.append(f"matches your {requested_genres[0]} preference")
