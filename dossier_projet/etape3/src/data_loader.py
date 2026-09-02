@@ -792,7 +792,7 @@ def empty_user_preferences(user_id: int | None = None) -> dict[str, Any]:
 # small TTL cache avoids a full DB round-trip (5 queries over the network to
 # the remote Supabase pooler) on every single request for the same user.
 _USER_PREFERENCES_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
-_USER_PREFERENCES_CACHE_TTL_SECONDS = 30.0
+_USER_PREFERENCES_CACHE_TTL_SECONDS = 5.0
 
 
 def fetch_user_preferences(user_id: int, db_url: str | None = None) -> dict[str, Any]:
