@@ -13,7 +13,7 @@ Node.js 22 et enchaîne :
 1. ESLint ; les avertissements existants sont affichés, sans modifier le code
    fonctionnel demandé.
 2. Vitest et V8 coverage. Les seuils versionnés dans `vite.config.ts` sont :
-   40 % pour lignes et instructions, 50 % pour branches, 35 % pour fonctions.
+   44 % pour lignes et instructions, 60 % pour branches, 42 % pour fonctions.
 3. Construction Docker. Sur pull request, l'image est construite mais non
    publiée. Sur push de branche, elle est publiée dans GHCR avec le
    `GITHUB_TOKEN`.
@@ -43,7 +43,7 @@ curl http://localhost:8080/health
 ## Résultat local du 2 septembre 2026
 
 - lint exécuté : succès avec avertissements existants ;
-- Vitest : 34 tests réussis ; couverture globale 42,04 % (seuils respectés) ;
+- Vitest : 44 tests réussis ; couverture globale 45,25 % (seuils respectés) ;
 - Vite production : build réussi ;
 - Docker : image construite avec Node 22 et conteneur validé sur `/health` ;
   réponse `{"status":"ok","version":"4.0.0"}`.

@@ -6,7 +6,7 @@
 #
 # Étapes du pipeline :
 #   1. LINT   — eslint (vérification du style et de la qualité)
-#   2. TEST   — vitest avec couverture (≥ 80 %)
+#   2. TEST   — vitest avec seuils de couverture versionnés
 #   3. BUILD  — Construction de l'image Docker + push vers le registre
 #   4. DEPLOY — Déploiement sur staging (develop) ou production (main)
 #

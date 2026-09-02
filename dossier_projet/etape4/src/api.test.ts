@@ -64,6 +64,17 @@ describe('apiClient', () => {
     await expect(apiClient.getRecommendations()).rejects.toMatchObject({ status_code: 401 });
     expect(apiClient.isAuthenticated()).toBe(false);
   });
+
+  it('returns model information and a successful health status with a JWT', async () => {
+    localStorage.setItem('jwt_token', 'jwt-value');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ version: '4.0', status: 'ready' }))
+      .mockResolvedValueOnce(jsonResponse({ status: 'ok' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(apiClient.getModelInfo()).resolves.toMatchObject({ version: '4.0' });
+    await expect(apiClient.healthCheck()).resolves.toBe(true);
+  });
 });
 
 describe('dataApi', () => {
@@ -103,5 +114,22 @@ describe('dataApi', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')));
 
     await expect(dataApi.healthCheck()).resolves.toBe(false);
+  });
+
+  it('requires a JWT before accessing favorites', async () => {
+    await expect(dataApi.listFavoris()).rejects.toMatchObject({ status_code: 401 });
+  });
+
+  it('adds a favorite and accepts a no-content deletion response', async () => {
+    localStorage.setItem('jwt_token', 'jwt-value');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 4, kdrama_id: 1 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(dataApi.addFavori(1)).resolves.toMatchObject({ kdrama_id: 1 });
+    await expect(dataApi.removeFavori(1)).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' });
   });
 });
