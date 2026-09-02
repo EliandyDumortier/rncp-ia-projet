@@ -830,11 +830,10 @@ def fetch_user_preferences(user_id: int, db_url: str | None = None) -> dict[str,
                 conn.execute(
                     text(
                         """
-                        SELECT g.nom AS genre_name
-                        FROM kdrama.utilisateur_genres_preferes ugp
-                        JOIN kdrama.genres g ON g.id = ugp.genre_id
-                        WHERE ugp.utilisateur_id = :user_id
-                        ORDER BY g.nom
+                        SELECT genre_nom AS genre_name
+                        FROM kdrama.utilisateur_genres_preferes
+                        WHERE utilisateur_id = :user_id
+                        ORDER BY genre_nom
                         """
                     ),
                     {"user_id": user_id},

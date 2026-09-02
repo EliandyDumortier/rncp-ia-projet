@@ -16,7 +16,7 @@ interface RecommendationsPageProps {
 
 // Hard cap enforced on both sections, independent of what top_k is requested
 // with: the recommendation page must never show more than 4 results per
-// section (history/personalized and chat/mood).
+// section (history/personalized and explore/mood-keywords).
 const MAX_RESULTS_PER_SECTION = 4;
 // Fetch a few extra candidates beyond what's shown so that marking a drama
 // "not interested" can be backfilled instantly from the existing pool,
@@ -116,8 +116,8 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
     }
   }, [user, fetchPersonalized]);
 
-  // Chat/mood recommendations are driven by explicit user input (free text
-  // and/or mood chips) and are only fetched on demand.
+  // Explore recommendations: mood + keywords.
+  // Both are optional; you can use mood alone, keywords alone, or combine them.
   const handleGetMoodRecommendations = async () => {
     if (!user) {
       flash('Please sign in to get recommendations.', 'info');
@@ -126,7 +126,7 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
     }
 
     if (!description.trim() && selectedMoods.length === 0) {
-      setMoodError('Please describe what you want to watch or select a mood.');
+      setMoodError('Select a mood or enter keywords (island, doctors, friendship, etc.).');
       return;
     }
 
@@ -220,7 +220,7 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
           </h2>
         </div>
         <p className="text-sm text-gray-400 mb-5">
-          Based on your profile, watch history, favorites and preferences.
+          Recommendations based on your preferences, favorites, and watch history.
         </p>
 
         {personalizedError && (
@@ -266,44 +266,22 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
       </section>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Section B — Chat / mood-based recommendations (max 4)              */}
+      {/* Section B — Explore by mood & keywords                             */}
       {/* ------------------------------------------------------------------ */}
       <section aria-labelledby="mood-title">
         <div className="flex items-center gap-2 mb-1">
           <Sparkles className="w-5 h-5 text-violet-400" aria-hidden="true" />
           <h2 id="mood-title" className="font-display text-xl font-bold text-slate-800">
-            Chat &amp; Mood
+            Explore by Mood &amp; Keywords
           </h2>
         </div>
         <p className="text-sm text-gray-400 mb-5">
-          Tell us what you're in the mood for right now.
+          Based on what you asked for — mood, keywords, or both.
         </p>
 
         <div className="mb-8 bg-white rounded-3xl border border-slate-100 shadow-soft p-6 sm:p-8">
-          <div className="mb-6">
-            <label htmlFor="description" className="sr-only">Describe what you want to watch</label>
-            <div className="relative">
-              <textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="I want a drama with a slow-burn romance, something that makes me cry but has a happy ending..."
-                className="w-full px-4 py-3 border-2 border-slate-200 rounded-2xl focus:border-rose-400 outline-none text-sm resize-none"
-                rows={3}
-              />
-              <button
-                onClick={handleGetMoodRecommendations}
-                disabled={moodLoading}
-                className="absolute bottom-2 right-2 p-2 bg-rose-500 text-white rounded-full hover:bg-rose-600 disabled:bg-gray-400 transition-colors"
-                aria-label="Send request"
-              >
-                <Send className="w-4 h-4" aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-sm text-gray-600 mb-3">Or pick a mood</p>
+          <div className="mb-8">
+            <p className="text-sm text-gray-600 mb-3 font-medium">1. Select a mood (optional)</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
               {MOOD_GENRES.map((mood) => (
                 <button
@@ -322,14 +300,29 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
             </div>
           </div>
 
-          <button
-            onClick={handleGetMoodRecommendations}
-            disabled={moodLoading}
-            className="w-full mt-6 py-3 px-4 bg-rose-500 text-white rounded-2xl font-medium hover:bg-rose-600 disabled:bg-gray-400 transition-colors flex items-center justify-center gap-2"
-          >
-            <Sparkles className="w-4 h-4" aria-hidden="true" />
-            Get Recommendations
-          </button>
+          <div className="mb-6">
+            <label htmlFor="description" className="text-sm text-gray-600 mb-3 font-medium block">
+              2. Or enter keywords (optional)
+            </label>
+            <div className="relative">
+              <textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="island, doctors, friendship, slow-burn romance..."
+                className="w-full px-4 py-3 border-2 border-slate-200 rounded-2xl focus:border-rose-400 outline-none text-sm resize-none"
+                rows={2}
+              />
+              <button
+                onClick={handleGetMoodRecommendations}
+                disabled={moodLoading}
+                className="absolute bottom-2 right-2 p-2 bg-rose-500 text-white rounded-full hover:bg-rose-600 disabled:bg-gray-400 transition-colors"
+                aria-label="Send request"
+              >
+                <Send className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
         </div>
 
         {moodError && (

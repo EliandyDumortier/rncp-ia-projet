@@ -259,16 +259,24 @@ class InteretUtilisateur(Base):
 
 
 class UtilisateurGenrePrefere(Base):
-    """Modèle ORM pour la table utilisateur_genres_preferes (genres favoris, max 3)."""
+    """Modèle ORM pour la table utilisateur_genres_preferes (genres favoris, max 3).
+
+    Stocké par NOM de genre (et non par FK vers kdrama.genres) car la table de
+    référence kdrama.genres est seedée en français (« Comédie », « Drame »…)
+    alors que la donnée réellement collectée — et donc la liste proposée à
+    l'utilisateur — vit dans la colonne kdramas.genres avec les libellés TMDB
+    en anglais (« Action & Adventure », « Sci-Fi & Fantasy »…). Voir
+    /api/v1/kdramas/genres, qui dérive la liste de cette colonne (et alimente
+    aussi le filtre de la page Search), et
+    genre_preferences_by_name_schema.sql pour la migration.
+    """
     __tablename__ = "utilisateur_genres_preferes"
     __table_args__ = {"schema": "kdrama"}
 
     utilisateur_id: Mapped[int] = Column(
         Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"), primary_key=True
     )
-    genre_id: Mapped[int] = Column(
-        Integer, ForeignKey("kdrama.genres.id", ondelete="CASCADE"), primary_key=True
-    )
+    genre_nom: Mapped[str] = Column(String(100), primary_key=True)
     date_ajout: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
 
 
@@ -355,9 +363,23 @@ def creer_token_jwt(donnees: dict, expires_delta: Optional[timedelta] = None) ->
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
+# Dépendance : session de base de données
+def get_db():
+    """Fournit une session de base de données par requête.
+
+    Yields:
+        Session SQLAlchemy.
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(lambda: SessionLocal()),
+    db: Session = Depends(get_db),
 ) -> Utilisateur:
     """Dépendance FastAPI : récupère l'utilisateur courant depuis le token JWT.
 
@@ -366,7 +388,9 @@ def get_current_user(
         db: Session de base de données.
 
     Returns:
-        Objet Utilisateur authentifié.
+        Objet Utilisateur authentifié, rattaché à la session de la requête
+        (get_db) : les endpoints peuvent donc modifier l'objet et committer
+        via leur propre `db`.
 
     Raises:
         HTTPException: 401 si le token est invalide ou l'utilisateur introuvable.
@@ -391,7 +415,10 @@ def get_current_user(
     if utilisateur is None:
         raise credentials_exception
 
-    db.close()
+    # Pas de db.close() ici : la session est celle de la requête (get_db), qui
+    # la ferme elle-même. La fermer ici détacherait l'objet Utilisateur, et
+    # toute modification faite ensuite par un endpoint (préférences, RGPD art.
+    # 17) serait silencieusement perdue au commit.
     return utilisateur
 
 
@@ -533,7 +560,12 @@ class UserResponse(BaseModel):
 class PreferencesUpdate(BaseModel):
     """Modèle pour la mise à jour des préférences de recommandation (toutes optionnelles)."""
     genres: Optional[list[str]] = Field(
-        None, description="Noms des genres favoris (maximum 3)."
+        None,
+        description=(
+            "Noms des genres favoris (maximum 3). Voir /api/v1/kdramas/genres "
+            "pour la liste proposée (source de vérité : colonne "
+            "kdramas.genres, la même que le filtre de la page Search)."
+        ),
     )
     acteurs: Optional[list[str]] = Field(
         None,
@@ -717,19 +749,8 @@ async def log_requests(request: Request, call_next):
         raise
 
 
-
-# Dépendance : session de base de données
-def get_db():
-    """Fournit une session de base de données par requête.
-
-    Yields:
-        Session SQLAlchemy.
-    """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# La dépendance get_db est définie plus haut (avant get_current_user, qui en
+# dépend pour partager une seule session par requête).
 
 
 @app.get("/", include_in_schema=False, summary="Redirection vers la documentation")
@@ -751,6 +772,27 @@ def test_db(db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # Endpoints d'authentification
 # ---------------------------------------------------------------------------
+def _noms_uniques_nettoyes(noms: list[str]) -> list[str]:
+    """Nettoie une liste de noms de préférence (genres ou acteurs).
+
+    Les préférences de genres comme d'acteurs sont stockées par nom, dans le
+    vocabulaire du catalogue (colonnes kdramas.genres / kdramas.acteurs).
+
+    Args:
+        noms: Noms bruts reçus du client.
+
+    Returns:
+        Les noms non vides, sans espaces superflus, dédoublonnés en
+        conservant l'ordre de sélection.
+    """
+    nettoyes: list[str] = []
+    for nom in noms:
+        nom_propre = nom.strip()
+        if nom_propre and nom_propre not in nettoyes:
+            nettoyes.append(nom_propre)
+    return nettoyes
+
+
 def build_user_response(utilisateur: "Utilisateur", db: Session) -> "UserResponse":
     """Construit un UserResponse enrichi (préférences + statistiques).
 
@@ -762,11 +804,10 @@ def build_user_response(utilisateur: "Utilisateur", db: Session) -> "UserRespons
         UserResponse avec genres/acteurs favoris et compteurs.
     """
     genres_preferes = [
-        g.nom
-        for g in db.query(Genre)
-        .join(UtilisateurGenrePrefere, UtilisateurGenrePrefere.genre_id == Genre.id)
+        row.genre_nom
+        for row in db.query(UtilisateurGenrePrefere)
         .filter(UtilisateurGenrePrefere.utilisateur_id == utilisateur.id)
-        .order_by(Genre.nom)
+        .order_by(UtilisateurGenrePrefere.genre_nom)
         .all()
     ]
     acteurs_preferes = [
@@ -963,27 +1004,23 @@ def update_my_preferences(
 
     Returns:
         Le profil utilisateur mis à jour.
-
-    Raises:
-        HTTPException: 400 si un genre indiqué n'existe pas.
     """
     if prefs.fin_heureuse_uniquement is not None:
         current_user.fin_heureuse_uniquement = prefs.fin_heureuse_uniquement
 
     if prefs.genres is not None:
-        genres_trouves = (
-            db.query(Genre).filter(Genre.nom.in_(prefs.genres)).all() if prefs.genres else []
-        )
-        if len(genres_trouves) != len(set(prefs.genres)):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="One or more selected genres do not exist",
-            )
+        # Pas de validation d'existence contre kdrama.genres : cette table de
+        # référence est seedée en français alors que le catalogue réel (colonne
+        # kdramas.genres, exposée par /api/v1/kdramas/genres et utilisée aussi
+        # par le filtre de la page Search) porte les libellés TMDB en anglais.
+        # On stocke donc le nom sélectionné, dans le vocabulaire du catalogue.
+        noms_genres = _noms_uniques_nettoyes(prefs.genres)
+
         db.query(UtilisateurGenrePrefere).filter(
             UtilisateurGenrePrefere.utilisateur_id == current_user.id
         ).delete()
-        for genre in genres_trouves:
-            db.add(UtilisateurGenrePrefere(utilisateur_id=current_user.id, genre_id=genre.id))
+        for nom_propre in noms_genres:
+            db.add(UtilisateurGenrePrefere(utilisateur_id=current_user.id, genre_nom=nom_propre))
 
     if prefs.acteurs is not None:
         # Pas de validation d'existence contre une table de référence : la
@@ -991,16 +1028,12 @@ def update_my_preferences(
         # (cf. /api/v1/kdramas/actors, dérivé en direct de kdramas.acteurs,
         # exactement comme les genres le sont de kdramas.genres). On stocke
         # donc le nom saisi/sélectionné directement, après nettoyage.
-        noms_uniques = []
-        for nom in prefs.acteurs:
-            nom_propre = nom.strip()
-            if nom_propre and nom_propre not in noms_uniques:
-                noms_uniques.append(nom_propre)
+        noms_acteurs = _noms_uniques_nettoyes(prefs.acteurs)
 
         db.query(UtilisateurActeurPrefere).filter(
             UtilisateurActeurPrefere.utilisateur_id == current_user.id
         ).delete()
-        for nom_propre in noms_uniques:
+        for nom_propre in noms_acteurs:
             db.add(
                 UtilisateurActeurPrefere(utilisateur_id=current_user.id, acteur_nom=nom_propre)
             )

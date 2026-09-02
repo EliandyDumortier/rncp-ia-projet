@@ -287,6 +287,58 @@ def test_update_preferences_rejects_more_than_5_actors(override_current_user):
     assert response.status_code == 422
 
 
+def test_get_current_user_shares_the_request_session():
+    """get_current_user must reuse the request session (get_db).
+
+    Régression : la dépendance ouvrait sa propre session puis la fermait,
+    renvoyant un Utilisateur détaché. Les endpoints qui modifient l'objet
+    (préférence « fin heureuse », anonymisation RGPD art. 17) committaient
+    alors sur une autre session, et la modification était perdue.
+    """
+    import inspect
+
+    from api_server import get_current_user, get_db
+
+    dependance_db = inspect.signature(get_current_user).parameters["db"].default
+    assert dependance_db.dependency is get_db
+
+
+def test_update_preferences_accepts_catalog_genre_names(override_current_user):
+    """Catalog genre names (kdramas.genres vocabulary) must be accepted.
+
+    Régression : ces noms étaient auparavant validés contre la table de
+    référence kdrama.genres, seedée en français, ce qui faisait échouer en
+    400 tout enregistrement de genres choisis dans la liste proposée par
+    /api/v1/kdramas/genres (la même que le filtre de la page Search).
+    """
+    with patch("api_server.SessionLocal") as mock_session_class:
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+
+        mock_query = Mock()
+        mock_query.filter.return_value.order_by.return_value.all.return_value = []
+        mock_query.filter.return_value.count.return_value = 0
+        mock_query.filter.return_value.delete.return_value = 0
+        mock_session.query.return_value = mock_query
+
+        response = client.patch(
+            "/api/v1/auth/me/preferences",
+            json={"genres": ["Action & Adventure", "Sci-Fi & Fantasy", "War & Politics"]},
+        )
+        assert response.status_code == 200
+
+        genres_ajoutes = [
+            call.args[0].genre_nom
+            for call in mock_session.add.call_args_list
+            if hasattr(call.args[0], "genre_nom")
+        ]
+        assert genres_ajoutes == [
+            "Action & Adventure",
+            "Sci-Fi & Fantasy",
+            "War & Politics",
+        ]
+
+
 def test_update_preferences_all_optional(override_current_user):
     """PATCH preferences with an empty body must succeed (all fields optional)."""
     with patch("api_server.SessionLocal") as mock_session_class:

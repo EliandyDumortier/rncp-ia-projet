@@ -40,10 +40,6 @@ _CLUSTER_STOPWORDS = {
     "stories",
     "kdrama",
     "kdramas",
-    # Defensive: cluster labels are derived from synopsis/genres only (see
-    # _build_content_clusters), but these are excluded too in case sentiment
-    # boilerplate ever leaks into that text — labels should describe THEMES,
-    # not repeat the audience-reception/sentiment signal shown elsewhere.
     "positive",
     "negative",
     "mixed",
@@ -54,6 +50,16 @@ _CLUSTER_STOPWORDS = {
     "viewers",
     "audience",
     "tone",
+    # Common Korean actor surnames (avoid "lee vibe" type noise in cluster labels)
+    "lee",
+    "kim",
+    "park",
+    "shin",
+    "jo",
+    "han",
+    "gang",
+    "choi",
+    "bae",
 }
 
 
@@ -764,16 +770,11 @@ class HybridRecommender:
             aligned_genre_mask = genre_mask.reindex(adjusted.index).fillna(False)
             adjusted.loc[aligned_genre_mask] += 1.1
             if int(genre_mask.sum()) >= min(top_k, 3):
-                # Re-align after the potential index shrink below so the next
-                # block (actor_mask) never sees stale labels.
                 adjusted = adjusted[aligned_genre_mask]
         if not actor_mask.empty and actor_mask.any():
-            # Recompute against the CURRENT adjusted.index (which may have
-            # shrunk from the genre filter above) to avoid a KeyError when
-            # some actor-matching drama_ids were filtered out by genre.
             aligned_actor_mask = actor_mask.reindex(adjusted.index).fillna(False)
             adjusted.loc[aligned_actor_mask] += 1.2
-            if int(actor_mask.sum()) >= min(top_k, 2):
+            if int(actor_mask.sum()) >= min(top_k, 2) and len(adjusted[aligned_actor_mask]) > 0:
                 adjusted = adjusted[aligned_actor_mask]
         return adjusted
 
