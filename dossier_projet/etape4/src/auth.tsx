@@ -2,6 +2,20 @@ import { createContext, useContext, useState, useCallback, type ReactNode } from
 import type { User, FlashMessage, FlashType } from './types';
 import { apiClient, dataApi, DataAPIError } from './api';
 
+function extractUserIdFromJWT(token: string): number {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) throw new Error('Invalid JWT');
+    const payload = JSON.parse(atob(parts[1]));
+    const sub = payload.sub;
+    if (!sub) throw new Error('Missing sub in JWT');
+    return parseInt(sub, 10);
+  } catch (e) {
+    console.error('Failed to extract user_id from JWT:', e);
+    throw e;
+  }
+}
+
 interface AuthContextValue {
   user: User | null;
   login: (username: string, password: string) => Promise<void>;
@@ -36,9 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     const data = await apiClient.authenticate(username, password);
-    const user_id = Math.abs(hashString(username)) % 100000;
-    const newUser: User = { user_id, username, jwt_token: data.access_token };
-    localStorage.setItem('user_id', String(user_id));
+    const real_user_id = extractUserIdFromJWT(data.access_token);
+    const newUser: User = { user_id: real_user_id, username, jwt_token: data.access_token };
+    localStorage.setItem('user_id', String(real_user_id));
     localStorage.setItem('username', username);
     setUser(newUser);
   }, []);
@@ -52,9 +66,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }) => {
     await dataApi.register(data);
     const authData = await apiClient.authenticate(data.pseudonyme, data.mot_de_passe);
-    const user_id = Math.abs(hashString(data.pseudonyme)) % 100000;
-    const newUser: User = { user_id, username: data.pseudonyme, jwt_token: authData.access_token };
-    localStorage.setItem('user_id', String(user_id));
+    const real_user_id = extractUserIdFromJWT(authData.access_token);
+    const newUser: User = { user_id: real_user_id, username: data.pseudonyme, jwt_token: authData.access_token };
+    localStorage.setItem('user_id', String(real_user_id));
     localStorage.setItem('username', data.pseudonyme);
     setUser(newUser);
   }, []);
@@ -89,14 +103,4 @@ export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
-}
-
-function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return hash;
 }
