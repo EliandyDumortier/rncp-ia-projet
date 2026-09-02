@@ -214,6 +214,14 @@ class HybridRecommender:
         )
         negative_seed_ids = self._unique_ints(user_preferences.get("disliked_drama_ids", []))
 
+        if user_id is not None and negative_seed_ids:
+            logger.info(
+                "User %d has %d disliked dramas: %s",
+                user_id,
+                len(negative_seed_ids),
+                negative_seed_ids[:5],
+            )
+
         has_request_context = any(
             [
                 user_id is not None,
@@ -255,7 +263,15 @@ class HybridRecommender:
             mode = "discovery"
 
         scores = base_scores.copy()
+        before_count = len(scores)
         scores = scores.drop(labels=list(exclude_ids), errors="ignore")
+        after_count = len(scores)
+        if exclude_ids and before_count != after_count:
+            logger.debug(
+                "Excluded %d dramas (exclude_ids had %d items)",
+                before_count - after_count,
+                len(exclude_ids),
+            )
         scores = scores[scores.index.isin(self.dramas_df["drama_id"].tolist())]
 
         if negative_seed_ids:
