@@ -47,7 +47,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=kdrama:kdrama src/ /app/src/
-COPY --chown=kdrama:kdrama data/ /app/data/
 COPY --chown=kdrama:kdrama requirements.txt /app/requirements.txt
 
 USER kdrama

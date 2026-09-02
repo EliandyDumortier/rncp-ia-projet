@@ -2,6 +2,7 @@ services:
   - type: web
     name: kdrama-data-api-e4
     runtime: docker
+    branch: develop
     region: frankfurt
     plan: free
     dockerfilePath: ./dossier_projet/etape1/docker/Dockerfile.api
@@ -9,6 +10,9 @@ services:
     healthCheckPath: /health
     autoDeployTrigger: checksPass
     envVars:
+      # The container listens on 8000; expose the same port to Render.
+      - key: PORT
+        value: "8000"
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
@@ -23,6 +27,7 @@ services:
   - type: web
     name: kdrama-model-api-e4
     runtime: docker
+    branch: develop
     region: frankfurt
     # Sentence-transformers and PyTorch exceed a typical 512 MB free instance.
     plan: 1c-2g
@@ -31,6 +36,9 @@ services:
     healthCheckPath: /health
     autoDeployTrigger: checksPass
     envVars:
+      # The container listens on 8001; expose the same port to Render.
+      - key: PORT
+        value: "8001"
       - key: DATABASE_URL
         sync: false
       # Enter exactly the same value as JWT_SECRET on the data API.
@@ -46,6 +54,7 @@ services:
   - type: web
     name: kdrama-web-app-e4
     runtime: docker
+    branch: develop
     region: frankfurt
     plan: free
     dockerfilePath: ./dossier_projet/etape4/docker/Dockerfile.app
@@ -53,6 +62,9 @@ services:
     healthCheckPath: /health
     autoDeployTrigger: checksPass
     envVars:
+      # Nginx serves the production build on port 80.
+      - key: PORT
+        value: "80"
       # Public HTTPS URLs of the two services above; Vite embeds them at build.
       - key: VITE_API_DATA_URL
         sync: false

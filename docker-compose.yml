@@ -68,13 +68,15 @@ services:
     networks:
       - kdrama-net
 
-  # Import the versioned real catalogue only when the local database is empty.
+  # Import the local catalogue only when the local database is empty.
   data-seed:
     build:
       context: ./dossier_projet/etape1
       dockerfile: docker/Dockerfile.api
     environment:
       DATABASE_URL: postgresql+psycopg2://kdrama:${DB_PASSWORD:-kdrama_dev_2026}@db:5432/kdrama
+    volumes:
+      - ./dossier_projet/etape1/data:/app/data:ro
     command: ["python", "/app/src/seed_database.py"]
     depends_on:
       db-migrate:
