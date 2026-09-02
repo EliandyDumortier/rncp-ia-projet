@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -479,11 +480,111 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
         dramas_df["sentiment_score"], errors="coerce"
     ).fillna(0.0)
 
+    # kdrama.kdrama_acteurs / kdrama.acteurs are not populated by the current
+    # collection pipeline, so actor_data.principal_actors above is always
+    # empty. The real actor data lives in kdramas.acteurs (JSON), so derive
+    # principal actors from there whenever the SQL join came back blank.
+    needs_actor_fallback = dramas_df["principal_actors"].astype(str).str.strip() == ""
+    if needs_actor_fallback.any():
+        dramas_df.loc[needs_actor_fallback, "principal_actors"] = dramas_df.loc[
+            needs_actor_fallback, "acteurs"
+        ].apply(_extract_principal_actors_from_json)
+
+    try:
+        review_snippets = _load_review_snippets(engine_url=db_url or _get_database_url())
+        dramas_df["review_snippet"] = dramas_df["drama_id"].map(review_snippets).fillna("")
+    except Exception as exc:
+        logger.warning("Impossible de charger les extraits de drama_reviews : %s", exc)
+        dramas_df["review_snippet"] = ""
+
     logger.info(
         "Catalogue chargé depuis l'étape 1 (PostgreSQL) : %d K-Dramas",
         len(dramas_df),
     )
     return dramas_df
+
+
+def _extract_principal_actors_from_json(raw_acteurs: Any, max_actors: int = 5) -> str:
+    """Derives a comma-separated list of principal actor names from the raw
+    kdramas.acteurs JSON column (used as a fallback since kdrama.acteurs /
+    kdrama.kdrama_acteurs are not populated by the current pipeline).
+    """
+    if not raw_acteurs or not isinstance(raw_acteurs, str):
+        return ""
+    try:
+        entries = json.loads(raw_acteurs)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(entries, list):
+        return ""
+
+    names = [
+        str(entry.get("nom", "")).strip()
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("role_principal") and entry.get("nom")
+    ]
+    if not names:
+        names = [
+            str(entry.get("nom", "")).strip()
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("nom")
+        ][:max_actors]
+    return ", ".join(name for name in names if name)
+
+
+_REVIEW_BOILERPLATE_RE = re.compile(
+    r"^.*?Rewatch Value\s+[\d.]+\s*(?:This review may contain spoilers\s*)?",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _clean_review_snippet(raw_text: str, max_chars: int = 350) -> str:
+    """Strips the MyDramaList review boilerplate header (username, helpful
+    count, per-category ratings, spoiler notice) and truncates to a short
+    snippet suitable for enriching the model's semantic content text.
+    """
+    if not raw_text:
+        return ""
+    cleaned = _REVIEW_BOILERPLATE_RE.sub("", raw_text, count=1).strip()
+    if not cleaned:
+        cleaned = raw_text.strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    truncated = cleaned[:max_chars]
+    last_space = truncated.rfind(" ")
+    if last_space > 0:
+        truncated = truncated[:last_space]
+    return truncated + "…"
+
+
+def _load_review_snippets(engine_url: str) -> dict[int, str]:
+    """Loads one representative (longest) real viewer review per drama from
+    kdrama.drama_reviews (~22k real MyDramaList reviews, currently unused by
+    the model) to enrich semantic matching beyond the short synopsis — e.g.
+    a query like "island" can match a review mentioning the setting even
+    when the synopsis itself doesn't.
+    """
+    engine = create_engine(engine_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT ON (drama_id) drama_id, review_text
+                    FROM kdrama.drama_reviews
+                    WHERE review_text IS NOT NULL AND LENGTH(review_text) > 200
+                    ORDER BY drama_id, LENGTH(review_text) DESC
+                    """
+                )
+            )
+            rows = result.fetchall()
+    finally:
+        engine.dispose()
+
+    return {
+        int(drama_id): _clean_review_snippet(review_text)
+        for drama_id, review_text in rows
+    }
 
 
 def generate_interactions_from_catalog(

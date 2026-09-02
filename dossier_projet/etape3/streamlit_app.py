@@ -170,7 +170,7 @@ def main() -> None:
                     with left:
                         poster = rec.get("poster") or rec.get("poster_url")
                         if poster:
-                            st.image(str(poster), use_container_width=True)
+                            st.image(str(poster))
                     with right:
                         st.subheader(str(rec.get("title") or rec.get("titre") or "Unknown"))
                         st.write(f"**Genres:** {', '.join(rec.get('genres', []))}")

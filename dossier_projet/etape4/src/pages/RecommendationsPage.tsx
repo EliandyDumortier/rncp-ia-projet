@@ -18,6 +18,11 @@ interface RecommendationsPageProps {
 // with: the recommendation page must never show more than 4 results per
 // section (history/personalized and chat/mood).
 const MAX_RESULTS_PER_SECTION = 4;
+// Fetch a few extra candidates beyond what's shown so that marking a drama
+// "not interested" can be backfilled instantly from the existing pool,
+// without waiting on a fresh network round-trip (whose result may briefly
+// still include the just-disliked drama due to short-lived server caching).
+const POOL_BUFFER_SIZE = MAX_RESULTS_PER_SECTION * 3;
 
 const MOOD_GENRES = [
   { label: 'Comfort', emoji: '🪴' },
@@ -49,6 +54,34 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
   const [moodFetched, setMoodFetched] = useState(false);
 
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
+  // Dramas marked "not interested" during this session: hidden immediately
+  // client-side (backfilled from the pool below), in addition to being
+  // excluded server-side on future requests.
+  const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
+
+  const personalizedVisible = personalized
+    .filter((d) => !hiddenIds.has(d.id))
+    .slice(0, MAX_RESULTS_PER_SECTION);
+  const moodVisible = moodResults
+    .filter((d) => !hiddenIds.has(d.id))
+    .slice(0, MAX_RESULTS_PER_SECTION);
+
+  const handleInterestChange = (dramaId: number, interesse: boolean) => {
+    if (interesse) return;
+    setHiddenIds((prev) => new Set(prev).add(dramaId));
+  };
+
+  // If hiding a drama exhausts the local pool's buffer, top up from the
+  // server in the background (rare — only after several dislikes in a row).
+  useEffect(() => {
+    if (personalizedFetched && !personalizedLoading && personalizedVisible.length < MAX_RESULTS_PER_SECTION) {
+      fetchPersonalized();
+    }
+    if (moodFetched && !moodLoading && moodVisible.length < MAX_RESULTS_PER_SECTION) {
+      handleGetMoodRecommendations();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hiddenIds]);
 
   // History/personalized recommendations are always available for a signed-in
   // user (based on their profile, watch history and preferences server-side),
@@ -60,9 +93,9 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
     try {
       const result = await apiClient.getRecommendations({
         user_id: user.user_id,
-        top_k: MAX_RESULTS_PER_SECTION,
+        top_k: POOL_BUFFER_SIZE,
       });
-      setPersonalized((result.recommendations || []).slice(0, MAX_RESULTS_PER_SECTION));
+      setPersonalized((result.recommendations || []).slice(0, POOL_BUFFER_SIZE));
     } catch (err) {
       if (err instanceof RecommendationAPIError) {
         setPersonalizedError(err.message);
@@ -104,11 +137,11 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
       const moodText = selectedMoods.join(', ') || undefined;
       const result = await apiClient.getRecommendations({
         user_id: user.user_id,
-        top_k: MAX_RESULTS_PER_SECTION,
+        top_k: POOL_BUFFER_SIZE,
         mood: moodText,
         text: description.trim() || undefined,
       });
-      setMoodResults((result.recommendations || []).slice(0, MAX_RESULTS_PER_SECTION));
+      setMoodResults((result.recommendations || []).slice(0, POOL_BUFFER_SIZE));
     } catch (err) {
       if (err instanceof RecommendationAPIError) {
         setMoodError(err.message);
@@ -209,9 +242,9 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
 
         {personalizedLoading ? (
           <LoadingSkeleton count={MAX_RESULTS_PER_SECTION} />
-        ) : personalized.length > 0 ? (
+        ) : personalizedVisible.length > 0 ? (
           <div role="list" className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {personalized.slice(0, MAX_RESULTS_PER_SECTION).map((d, i) => (
+            {personalizedVisible.map((d, i) => (
               <DramaCard
                 key={d.id}
                 drama={d}
@@ -318,9 +351,9 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
 
         {moodLoading ? (
           <LoadingSkeleton count={MAX_RESULTS_PER_SECTION} />
-        ) : moodResults.length > 0 ? (
+        ) : moodVisible.length > 0 ? (
           <div role="list" className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {moodResults.slice(0, MAX_RESULTS_PER_SECTION).map((d, i) => (
+            {moodVisible.map((d, i) => (
               <DramaCard
                 key={d.id}
                 drama={d}
@@ -353,6 +386,7 @@ export function RecommendationsPage({ nav }: RecommendationsPageProps) {
         onToggleFav={toggleFav}
         isWatched={selectedDrama ? isWatched(selectedDrama.id) : false}
         onAddToWatched={handleAddToWatched}
+        onInterestChange={handleInterestChange}
       />
     </div>
   );

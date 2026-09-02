@@ -12,6 +12,7 @@ interface DramaDetailModalProps {
   onToggleFav: (drama: Drama) => void;
   isWatched?: boolean;
   onAddToWatched?: (drama: Drama) => void;
+  onInterestChange?: (dramaId: number, interesse: boolean) => void;
 }
 
 export function DramaDetailModal({
@@ -21,6 +22,7 @@ export function DramaDetailModal({
   onToggleFav,
   isWatched = false,
   onAddToWatched,
+  onInterestChange,
 }: DramaDetailModalProps) {
   const { user } = useAuth();
   const [interest, setInterest] = useState<boolean | null>(null);
@@ -53,6 +55,8 @@ export function DramaDetailModal({
     try {
       await dataApi.setInteret(drama.id, interesse);
       setInterest(interesse);
+      onInterestChange?.(drama.id, interesse);
+      if (!interesse) onClose();
     } catch {
       // Non-blocking: feedback is a nice-to-have signal, failing silently
       // keeps the modal usable even if the API call fails.

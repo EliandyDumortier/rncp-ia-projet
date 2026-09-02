@@ -261,7 +261,16 @@ class HybridRecommender:
         query_scores = self._query_similarity_scores(query_text).reindex(scores.index).fillna(0.0)
 
         if not query_scores.empty and query_scores.max() > 0:
-            scores = scores + query_scores * 0.4
+            # A free-text/mood request is an explicit, information-rich
+            # signal from the user — it should strongly drive the ranking
+            # rather than just nudge history-based scores, otherwise a
+            # request like "a quiet drama set on an island" gets drowned out
+            # by collaborative/history noise (especially for users with
+            # little or synthetic interaction history). A specific written
+            # request (`text`) gets the strongest weight; a short mood label
+            # alone gets a slightly lighter one.
+            query_weight = 0.8 if text else 0.6
+            scores = (1 - query_weight) * scores + query_weight * query_scores
 
         scores = self._apply_preference_adjustments(
             scores=scores,
@@ -691,8 +700,57 @@ class HybridRecommender:
             convert_to_numpy=True,
         )
         query_embedding = normalize(query_embedding, norm="l2")[0]
-        scores = self.content_embeddings @ query_embedding
-        return self._scale_series(pd.Series(scores, index=self.dramas_df["drama_id"], dtype=float))
+        cosine_scores = self.content_embeddings @ query_embedding
+
+        # Sentence embeddings average an entire concatenated document
+        # (synopsis + genres + actors + ending/sentiment + review snippet),
+        # which dilutes short/literal keywords the user actually typed (e.g.
+        # "island") when the rest of that long text is about something else.
+        # Whenever the query has a literal keyword match somewhere in the
+        # catalog, that match should DOMINATE the ranking — cosine
+        # similarity is kept only as a tie-breaker among equally-matching
+        # candidates, and as the sole signal when there is no literal match
+        # at all (e.g. abstract mood words like "heartwarming").
+        keyword_hits = self._keyword_overlap_scores(query_text)
+        combined = cosine_scores + keyword_hits * 10.0
+        return self._scale_series(pd.Series(combined, index=self.dramas_df["drama_id"], dtype=float))
+
+    _QUERY_STOPWORDS = {
+        "about", "after", "before", "drama", "dramas", "episode", "episodes",
+        "series", "show", "shows", "story", "stories", "kdrama", "kdramas",
+        "with", "that", "this", "have", "from", "want", "like", "some",
+        "into", "onto", "your", "their", "there", "where", "which", "while",
+    }
+
+    def _keyword_overlap_scores(self, query_text: str) -> np.ndarray:
+        """Counts literal (case-insensitive) keyword hits between the query
+        and each drama's title/synopsis/review snippet, ignoring short/common
+        words. Returns an array aligned with dramas_df row order.
+        """
+        if self.dramas_df is None:
+            return np.zeros(0)
+        keywords = [
+            word
+            for word in re.findall(r"[a-zA-Z]{4,}", query_text.lower())
+            if word not in self._QUERY_STOPWORDS
+        ]
+        if not keywords:
+            return np.zeros(len(self.dramas_df))
+
+        review_snippets = self.dramas_df.get(
+            "review_snippet", pd.Series("", index=self.dramas_df.index)
+        ).astype(str)
+        haystacks = (
+            self.dramas_df["title"].astype(str)
+            + " "
+            + self.dramas_df["synopsis"].astype(str)
+            + " "
+            + review_snippets
+        ).str.lower()
+
+        return haystacks.apply(
+            lambda text: sum(1 for kw in keywords if kw in text)
+        ).to_numpy(dtype=float)
 
     def _apply_preference_adjustments(
         self,
@@ -910,6 +968,10 @@ class HybridRecommender:
         ending_phrase = self._build_ending_phrase(row)
         consensus = str(row.get("viewer_consensus", "")).strip()
         summary = str(row.get("sentiment_summary", "")).strip()
+        # Real viewer review text (kdrama.drama_reviews) often describes plot
+        # details, settings and themes (e.g. "on a remote island") that the
+        # short synopsis omits, improving free-text/mood semantic matching.
+        review_snippet = str(row.get("review_snippet", "")).strip()
         parts = [
             title,
             synopsis,
@@ -918,6 +980,7 @@ class HybridRecommender:
             ending_phrase,
             summary,
             consensus,
+            review_snippet,
         ]
         return " ".join(part for part in parts if part)
 
