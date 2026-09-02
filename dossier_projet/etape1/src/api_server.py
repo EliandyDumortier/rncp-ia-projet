@@ -1952,6 +1952,46 @@ def upsert_historique(
     return entree
 
 
+@app.delete(
+    "/api/v1/historique/{kdrama_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Supprimer une entrée d'historique de visionnage",
+)
+def delete_historique(
+    kdrama_id: int,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Supprime l'entrée d'historique de visionnage d'un K-Drama.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Raises:
+        HTTPException: 404 si le K-Drama n'existe pas.
+    """
+    if not db.query(Kdrama).filter(Kdrama.id == kdrama_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    entree = db.query(HistoriqueVisionnage).filter(
+        HistoriqueVisionnage.utilisateur_id == current_user.id,
+        HistoriqueVisionnage.kdrama_id == kdrama_id,
+    ).first()
+
+    if entree is not None:
+        db.delete(entree)
+        db.commit()
+        logger.info(
+            "Historique supprimé: kdrama=%d, user=%d",
+            kdrama_id, current_user.id,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints — Intérêt utilisateur ("want to watch" / "not interested")
 # ---------------------------------------------------------------------------

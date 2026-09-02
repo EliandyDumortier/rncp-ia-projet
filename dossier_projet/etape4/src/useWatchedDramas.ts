@@ -116,8 +116,16 @@ export function useWatchedDramas(userId: number | null) {
   const removeWatchedDrama = useCallback(
     (watchedId: number) => {
       setWatched((prev) => {
+        const drama = prev.find((w) => w.id === watchedId);
         const next = prev.filter((w) => w.id !== watchedId);
         saveWatchedDramas(userId, next);
+
+        if (drama && userId !== null) {
+          dataApi.deleteHistorique(drama.drama_id).catch((err) => {
+            if (!(err instanceof DataAPIError)) throw err;
+          });
+        }
+
         return next;
       });
     },

@@ -483,6 +483,20 @@ export const dataApi = {
     return response.json();
   },
 
+  async deleteHistorique(kdramaId: number): Promise<void> {
+    const token = getStoredToken();
+    if (!token) {
+      throw new DataAPIError('No JWT token. Authentication required.', 401);
+    }
+    const response = await fetchWithTimeout(`${API_DATA_URL}/api/v1/historique/${kdramaId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok && response.status !== 204) {
+      throw new DataAPIError(`Data API error (HTTP ${response.status}).`, response.status);
+    }
+  },
+
   async getInteret(kdramaId: number): Promise<InteretResponse | null> {
     const token = getStoredToken();
     if (!token) {
