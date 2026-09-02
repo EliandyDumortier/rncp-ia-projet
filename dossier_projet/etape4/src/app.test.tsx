@@ -3,6 +3,32 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
 
+// Unit tests must remain deterministic: integration with the data API is
+// validated separately in the E1/E4 Docker stack.
+vi.mock('./data', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./data')>();
+
+  return {
+    ...actual,
+    fetchDramas: vi.fn(async (_page = 1, pageSize = 20, search?: string) => {
+      const query = search?.trim().toLowerCase();
+      const items = query
+        ? actual.dramas.filter((drama) =>
+            [drama.title, drama.synopsis, ...drama.genres]
+              .some((value) => value.toLowerCase().includes(query))
+          )
+        : actual.dramas;
+
+      return {
+        items: items.slice(0, pageSize),
+        total: items.length,
+        totalPages: Math.max(1, Math.ceil(items.length / pageSize)),
+        fallback: true,
+      };
+    }),
+  };
+});
+
 describe('App — Accessibility (RGAA 4.1)', () => {
   beforeEach(() => {
     localStorage.clear();

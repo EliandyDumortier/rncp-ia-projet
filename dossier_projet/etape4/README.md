@@ -132,7 +132,7 @@ rncp-ia-projet/
 
 ### Prérequis
 
-- Node.js 20+
+- Node.js 22+
 - L'API IA de l'étape 3 en cours d'exécution (par défaut sur `http://localhost:8001`)
 - L'API DATA de l'étape 1 en cours d'exécution (par défaut sur `http://localhost:8000`)
 
@@ -154,6 +154,7 @@ docker run -p 8080:80 kdrama-app:4.0
 ```
 
 L'application est accessible sur `http://localhost:8080`.
+Le bon démarrage se vérifie avec `http://localhost:8080/health`.
 
 ---
 

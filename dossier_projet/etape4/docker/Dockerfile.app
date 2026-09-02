@@ -20,7 +20,7 @@
 # ============================================================
 
 # --- Étape 1 : Build de l'application React ---
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /build
 

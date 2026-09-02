@@ -32,7 +32,7 @@ permissions:
   packages: write
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
   WORKING_DIR: dossier_projet/etape4
 
 jobs:
@@ -95,6 +95,10 @@ jobs:
         run: npm ci
 
       - name: Run tests with coverage
+        env:
+          # Unit tests must not depend on a developer's local data API.
+          # The application then exercises its documented local-catalog fallback.
+          VITE_API_DATA_URL: http://127.0.0.1:9
         run: npm run test:coverage
 
       - name: Upload coverage report
@@ -109,7 +113,7 @@ jobs:
         if: always()
         run: |
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "All tests executed with vitest. Coverage >= 80%." >> $GITHUB_STEP_SUMMARY
+          echo "All tests executed with Vitest; configured coverage thresholds are enforced." >> $GITHUB_STEP_SUMMARY
 
   # ============================================================
   # Étape 3 : BUILD — Construction de l'image Docker
@@ -127,6 +131,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -152,7 +157,8 @@ jobs:
         with:
           context: ${{ env.WORKING_DIR }}
           file: ${{ env.WORKING_DIR }}/docker/Dockerfile.app
-          push: true
+          # Pull requests validate the image build without publishing it.
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -162,7 +168,7 @@ jobs:
         if: always()
         run: |
           echo "## Docker Build" >> $GITHUB_STEP_SUMMARY
-          echo "Image built and pushed to ghcr.io." >> $GITHUB_STEP_SUMMARY
+          echo "Image build completed; branch pushes are published to ghcr.io." >> $GITHUB_STEP_SUMMARY
 
   # ============================================================
   # Étape 4a : DEPLOY Staging (push vers develop)
