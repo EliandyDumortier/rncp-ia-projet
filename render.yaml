@@ -29,9 +29,10 @@ services:
     runtime: docker
     branch: develop
     region: frankfurt
-    # Sentence-transformers and PyTorch exceed a typical 512 MB free instance.
-    plan: 1c-2g
-    dockerfilePath: ./dossier_projet/etape3/docker/Dockerfile.model
+    # Production/free variant: TF-IDF keeps the same API contract while the
+    # full Sentence Transformer model remains available in Docker Compose.
+    plan: free
+    dockerfilePath: ./dossier_projet/etape3/docker/Dockerfile.model.render
     dockerContext: ./dossier_projet/etape3
     healthCheckPath: /health
     autoDeployTrigger: checksPass
@@ -44,8 +45,15 @@ services:
       # Enter exactly the same value as JWT_SECRET on the data API.
       - key: JWT_SECRET_KEY
         sync: false
+      # Required only by the model API's isolated demo-token endpoint.
+      - key: USER_PASSWORD
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
       - key: CORS_ALLOWED_ORIGINS
         sync: false
+      - key: DISABLE_SENTENCE_TRANSFORMERS
+        value: "1"
       - key: API_HOST
         value: 0.0.0.0
       - key: API_PORT

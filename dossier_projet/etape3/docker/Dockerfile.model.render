@@ -1,0 +1,69 @@
+# Render Free production variant of the model API.
+#
+# This image intentionally excludes PyTorch, Transformers and Sentence
+# Transformers. It uses the recommender's existing TF-IDF fallback while
+# preserving the same FastAPI contract consumed by the React application.
+# Docker Compose continues to use docker/Dockerfile.model unchanged.
+
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+COPY requirements.render.txt .
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.render.txt
+
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH="/app/src" \
+    API_HOST=0.0.0.0 \
+    API_PORT=8001 \
+    LOG_LEVEL=info \
+    DISABLE_SENTENCE_TRANSFORMERS=1 \
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_MAX_THREADS=1 \
+    MALLOC_ARENA_MAX=2
+
+RUN groupadd -r kdrama && \
+    useradd -r -g kdrama -d /app -s /sbin/nologin -c "K-Drama API User" kdrama && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /opt/venv /opt/venv
+
+# Copy Python sources only. The full Sentence Transformer artifacts remain in
+# the repository for Docker Compose but are not bundled into this image, so the
+# API trains a small TF-IDF representation from the configured database.
+COPY --chown=kdrama:kdrama src/*.py /app/src/
+COPY --chown=kdrama:kdrama requirements.render.txt /app/requirements.render.txt
+
+USER kdrama
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+EXPOSE 8001
+
+CMD ["gunicorn", "model_api:app", \
+     "--bind", "0.0.0.0:8001", \
+     "--workers", "1", \
+     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--timeout", "120", \
+     "--keep-alive", "5", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
+     "--log-level", "info"]
