@@ -1,431 +1,179 @@
-# K-Drama Recommender API — Étape 3 : MLOps & API de modèle d'IA
+# K-Drama Recommender API — Étape 3
 
-> Système de recommandation de K-Dramas (séries coréennes) propulsé par un modèle d'IA hybride, exposé via une API REST sécurisée, monitorée et déployée via une chaîne MLOps continue.
+Cette étape expose le modèle hybride de recommandation de K-Dramas via une API
+FastAPI. Elle relie les données de l'étape 1 à l'interface React de l'étape 4
+et fournit les éléments de tests, monitoring, packaging Docker et MLOps du
+projet.
 
-## 📋 Table des matières
+## Architecture et modèle
 
-- [Aperçu](#aperçu)
-- [Architecture](#architecture)
-- [Modèle d'IA hybride](#modèle-dia-hybride)
-- [API REST (FastAPI)](#api-rest-fastapi)
-- [Sécurité (JWT, OWASP)](#sécurité-jwt-owasp)
-- [Monitoring (Prometheus, Grafana)](#monitoring-prometheus-grafana)
-- [Tests automatisés](#tests-automatisés)
-- [Pipeline MLOps (GitHub Actions)](#pipeline-mlops-github-actions)
-- [Docker](#docker)
-- [Installation et démarrage](#installation-et-démarrage)
-- [Variables d'environnement](#variables-denvironnement)
-- [Endpoints de l'API](#endpoints-de-lapi)
-- [Compétences RNCP couvertes](#compétences-rncp-couvertes)
-
----
-
-## Aperçu
-
-Ce projet constitue l'**Étape 3** du projet RNCP AI, dédiée au **déploiement d'une API exposant un modèle d'IA**, à son **intégration**, au **monitoring**, aux **tests** et au **MLOps**.
-
-Le système de recommandation de K-Dramas combine deux approches :
-
-1. **Filtrage basé sur le contenu** (content-based) via `sentence-transformers` qui génère des embeddings sémantiques des synopsis de dramas.
-2. **Filtrage collaboratif** (collaborative filtering) via `scikit-learn` (NearestNeighbors) sur la matrice d'interactions utilisateur-drama.
-
-Le score final est une moyenne pondérée : `score = α × content_score + (1 - α) × collaborative_score`
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Client (Web/Mobile)                    │
-└────────────────────────┬────────────────────────────────┘
-                         │ HTTPS + JWT
-┌────────────────────────▼────────────────────────────────┐
-│                   FastAPI (model_api.py)                  │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐ │
-│  │  /auth   │  │/recommend│  │ /predict │  │ /health │ │
-│  │ /token   │  │          │  │          │  │/metrics │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬────┘ │
-│       │             │             │             │       │
-│  ┌────▼─────────────▼─────────────▼─────────────▼────┐ │
-│  │           ModelManager (Singleton)                   │ │
-│  └────────────────────┬────────────────────────────────┘ │
-│                       │                                  │
-│  ┌────────────────────▼────────────────────────────────┐ │
-│  │       HybridRecommender (recommendation_model.py)   │ │
-│  │  ┌──────────────┐  ┌──────────────────────────────┐ │ │
-│  │  │ Content-Based│  │  Collaborative Filtering     │ │ │
-│  │  │ Sentence-    │  │  scikit-learn NearestNeighbors│ │ │
-│  │  │ Transformers │  │  (matrice utilisateur-drama) │ │ │
-│  │  └──────────────┘  └──────────────────────────────┘ │ │
-│  └─────────────────────────────────────────────────────┘ │
-│                                                           │
-│  ┌─────────────────────────────────────────────────────┐ │
-│  │       ModelMonitor (model_monitoring.py)             │ │
-│  │  Prometheus metrics → /metrics endpoint              │ │
-│  │  Drift detection (PSI) + Alert rules                  │ │
-│  └─────────────────────────────────────────────────────┘ │
-└───────────────────────────────────────────────────────────┘
-                         │ scrape
-┌────────────────────────▼────────────────────────────────┐
-│              Prometheus → Grafana Dashboard               │
-└─────────────────────────────────────────────────────────┘
+```text
+API de données (étape 1 / PostgreSQL)
+                 │
+                 ▼
+  HybridRecommender (étape 3)
+  ├─ filtrage par contenu : embeddings sentence-transformers
+  ├─ filtrage collaboratif : scikit-learn NearestNeighbors
+  └─ repli TF-IDF et snapshot local si la source distante est indisponible
+                 │
+                 ▼
+     API FastAPI :8001 ──→ application React (étape 4)
+                 │
+                 └─→ métriques Prometheus (/metrics)
 ```
 
----
+Le modèle est implémenté dans `src/recommendation_model.py`. Il combine les
+scores de contenu et collaboratifs avec le paramètre `alpha`. Les artefacts sont
+sérialisés avec `joblib`/`numpy`; le chargement privilégie les données de
+l'étape 1 puis un snapshot local ou un catalogue de secours lorsqu'un
+environnement isolé ne fournit pas la base de données.
 
-## Modèle d'IA hybride
+## API et sécurité
 
-**Fichier : `src/recommendation_model.py`**
+Le point d'entrée est `src/model_api.py`. Lancez le service puis consultez la
+documentation OpenAPI sur `http://localhost:8001/docs`.
 
-### Caractéristiques
+| Route | Rôle | Authentification |
+|---|---|---|
+| `GET /health` | état du service et du modèle | non |
+| `GET /metrics` | métriques Prometheus | non |
+| `POST /auth/token` | jeton JWT de démonstration | non |
+| `POST /recommend` | recommandations personnalisées, similaires ou de découverte | JWT |
+| `POST /predict` | prédiction de note | JWT |
+| `GET /model/info` | métadonnées du modèle | JWT |
+| `GET /alerts`, `GET /alerts/rules` | alertes et règles | rôle admin |
 
-| Composant | Technologie | Description |
-|-----------|-------------|-------------|
-| Content-based | `sentence-transformers` (all-MiniLM-L6-v2) | Embeddings sémantiques des synopsis + genres |
-| Collaborative | `scikit-learn` NearestNeighbors | Similarité cosinus entre utilisateurs |
-| Fallback | TF-IDF (scikit-learn) | Si sentence-transformers indisponible |
-| Sérialisation | `joblib` + `numpy` | Sauvegarde/chargement des artefacts |
+L'API applique une validation Pydantic, une limitation de débit, des origines
+CORS configurables et des en-têtes de sécurité. Ces dispositifs complètent,
+mais ne remplacent pas, la configuration de secrets, des origines et de la
+base de données d'un environnement de production.
 
-### Utilisation
+## Installation locale
 
-```python
-from recommendation_model import HybridRecommender, load_real_data
+Chaque étape possède son propre environnement Python : ne partagez pas celui
+des autres dossiers.
 
-# Chargement des données réelles depuis l'étape 1
-# (PostgreSQL/Supabase si disponible, sinon fallback local configuré)
-dramas_df, interactions_df = load_real_data(num_users=50)
-
-# Entraînement
-model = HybridRecommender(alpha=0.6)
-metrics = model.train(dramas_df, interactions_df)
-
-# Recommandations pour un utilisateur
-results = model.recommend(user_id=1, top_k=10)
-
-# Prédiction de note
-score = model.predict(user_id=1, drama_id=1)
-
-# Sauvegarde / chargement
-model.save("./model_artifacts")
-loaded = HybridRecommender.load("./model_artifacts")
+```powershell
+cd dossier_projet/etape3
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
-> **Note sur les données** : Le catalogue de K-Dramas est chargé en
-> priorité depuis PostgreSQL (étape 1). En environnement isolé (CI ou
-> test local sans base), le loader peut utiliser un snapshot local
-> (`LOCAL_DATA_SNAPSHOT_PATH`) ou un catalogue embarqué de secours.
-> Les notes individuelles par utilisateur sont simulées de façon
-> déterministe à partir de `note_moyenne`.
+Sous Linux/macOS, activez-le avec `source .venv/bin/activate`.
 
----
+Pour démarrer l'API :
 
-## API REST (FastAPI)
-
-**Fichier : `src/model_api.py`**
-
-L'API expose les endpoints suivants avec :
-
-- **Authentification JWT** (HS256, expiration configurable)
-- **Rate limiting** (slowapi) — protection contre les abus
-- **Validation Pydantic** — rejet des entrées invalides
-- **CORS configurable** — origines restreintes
-- **Headers de sécurité OWASP** — X-Content-Type-Options, X-Frame-Options, etc.
-- **Documentation OpenAPI** auto-générée (Swagger UI + ReDoc)
-
-### Démarrage
-
-```bash
+```powershell
 cd src
 python model_api.py
-# API disponible sur http://localhost:8001
-# Documentation sur http://localhost:8001/docs
 ```
 
----
+L'API écoute par défaut sur `http://localhost:8001`. Le POC Streamlit est
+disponible depuis le dossier de l'étape 3 avec :
 
-## Sécurité (JWT, OWASP)
-
-| Protection | Implémentation |
-|------------|----------------|
-| Authentification | JWT (PyJWT) avec expiration et signature HS256 |
-| Rate limiting | slowapi — 100 req/min global, 30 req/min pour le modèle |
-| Validation des entrées | Pydantic v2 avec contraintes (ge, le, min_length, max_length) |
-| Injection SQL/XSS | Rejet des types invalides par Pydantic |
-| Headers de sécurité | X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, CSP |
-| CORS | Origines configurables via env vars |
-| RBAC | Rôles user/admin avec contrôle d'accès |
-| Force brute | Délai de 500ms + rate limit strict sur /auth/token |
-
----
-
-## Monitoring (Prometheus, Grafana)
-
-**Fichier : `src/model_monitoring.py`**
-
-### Métriques collectées
-
-| Métrique | Type | Description |
-|----------|------|-------------|
-| `kdrama_api_requests_total` | Counter | Nombre total de requêtes |
-| `kdrama_api_request_latency_seconds` | Histogram | Latence des requêtes |
-| `kdrama_api_errors_total` | Counter | Nombre d'erreurs |
-| `kdrama_model_predictions_total` | Counter | Nombre de prédictions |
-| `kdrama_model_prediction_score_distribution` | Histogram | Distribution des scores |
-| `kdrama_model_inference_time_seconds` | Histogram | Temps d'inférence |
-| `kdrama_model_status` | Gauge | Statut du modèle (1/0) |
-| `kdrama_model_prediction_drift` | Gauge | PSI (dérive de prédiction) |
-
-### Alertes
-
-- **PredictionDriftHigh** : PSI > 0.25 (warning) / > 0.5 (critical)
-- **HighErrorRate** : Taux d'erreur > 5%
-- **HighLatencyP99** : Latence P99 > 2s
-- **ModelUnavailable** : Statut modèle = 0
-- **NoRecentPredictions** : Aucune prédiction en 10 min
-
-### Dashboard Grafana
-
-Le fichier `model_monitoring.py` exporte la configuration JSON du dashboard Grafana avec 7 panneaux : latence, requêtes, drift, distribution des scores, taux d'erreur, statut du modèle, temps d'inférence.
-
----
-
-## Tests automatisés
-
-**Fichier : `tests/test_model_api.py`**
-
-### Couverture
-
-| Catégorie | Nombre de tests | Description |
-|-----------|----------------|-------------|
-| Health endpoint | 6 | Format, statut, version, timestamp |
-| Metrics endpoint | 4 | Format Prometheus, content-type |
-| Auth endpoint | 6 | JWT valide/invalide, champs manquants |
-| Recommend endpoint | 13 | Modes user/item, validation, format, tri, latence |
-| Predict endpoint | 7 | Score valide, validation, latence |
-| Model info | 2 | Avec/sans auth |
-| Alerts (admin) | 3 | RBAC admin/user/anonyme |
-| Sécurité OWASP | 7 | Token invalide, XSS, injection, headers |
-| Modèle (unitaire) | 15 | Entraînement, inférence, sérialisation |
-| Monitoring | 11 | Métriques, drift, alertes |
-| Performance | 5 | Seuils de latence, concurrence |
-| Validation edge cases | 7 | top_k=1, top_k=50, IDs extrêmes |
-| OpenAPI | 5 | Spécification, sécurité, tags, docs |
-
-### Exécution
-
-```bash
-pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=80
+```powershell
+streamlit run streamlit_app.py
 ```
 
----
+## Variables d'environnement principales
 
-## Pipeline MLOps (GitHub Actions)
+| Variable | Défaut / usage |
+|---|---|
+| `JWT_SECRET_KEY` | secret de signature JWT — valeur forte obligatoire hors développement |
+| `JWT_EXPIRATION_HOURS` | durée de validité du JWT (24 par défaut) |
+| `DATABASE_URL` / `SUPABASE_DB_URL` | accès aux données de l'étape 1 |
+| `CORS_ALLOWED_ORIGINS` | origines front-end autorisées |
+| `API_HOST`, `API_PORT` | hôte et port, par défaut `0.0.0.0:8001` |
+| `USE_LOCAL_DATA_SNAPSHOT` | active un snapshot local en environnement isolé |
+| `FALLBACK_TO_LOCAL_ON_DB_ERROR` | autorise le repli si la base est indisponible |
+| `MODEL_OUTPUT_DIR` | répertoire des artefacts de modèle |
 
-**Fichier : `.github/workflows/mlops_pipeline.yml`**
+Ne versionnez jamais de secrets : `.env` et les environnements `.venv` sont
+ignorés par Git.
 
-### Étapes
+## Tests et contrôle qualité
 
+```powershell
+cd dossier_projet/etape3
+.\.venv\Scripts\Activate.ps1
+pytest tests -v --cov=src --cov-report=term-missing --cov-fail-under=80
+ruff check src tests
+black --check --diff src tests
+mypy src --ignore-missing-imports --no-strict-optional
 ```
-Lint (ruff + black + mypy)
-  ↓
-Tests (pytest + couverture ≥ 80%)
-  ↓
-Entraînement (génération des artefacts + tests de non-régression)
-  ↓
-Packaging (build Docker multi-stage + push vers GHCR)
-  ↓
-Déploiement (production, health check, notification Slack)
-  ↓
-Monitoring post-déploiement (vérification métriques Prometheus)
-```
 
-### Déclencheurs
-
-- **Push** sur `etape3/mlops-modele` / `develop` / `main` : lint + tests + train + package.
-- **Pull request** sur ces branches : lint + tests + train + package (build sans push d'image).
-- **Déploiement** : uniquement sur push `develop` (staging) et push `main` (production).
-
----
+Les tests couvrent le chargeur de données, le modèle, l'API, les routes de
+monitoring, les contrôles JWT/RBAC et des scénarios de validation. La couverture
+minimale configurée dans la chaîne MLOps est de 80 %. MyPy est informatif dans
+le workflow (`continue-on-error`) ; Ruff et Black sont bloquants.
 
 ## Docker
 
-**Fichier : `docker/Dockerfile.model`**
-
-### Caractéristiques
-
-- **Multi-stage build** : builder (compilation) → runtime (léger)
-- **Image de base** : `python:3.11-slim`
-- **Utilisateur non-root** : sécurité OWASP
-- **Healthcheck** : vérification automatique toutes les 30s
-- **Gunicorn + Uvicorn workers** : 4 workers pour la concurrence
-- **SBOM** : Software Bill of Materials généré à chaque build
-
-### Build et run
+Depuis `dossier_projet/etape3` :
 
 ```bash
-# Build
-docker build -t kdrama-recommender-api:local -f docker/Dockerfile.model .
-
-# Run (test local sans base distante)
-docker run --rm -p 8001:8001 \
-  -e JWT_SECRET_KEY=test-secret \
-  -e ADMIN_PASSWORD=admin123 \
-  -e USER_PASSWORD=user123 \
+docker build -f docker/Dockerfile.model -t kdrama-recommender-api:local .
+docker run --rm -p 8001:8001 --env-file ../../docker.env \
   -e USE_LOCAL_DATA_SNAPSHOT=true \
   -e FALLBACK_TO_LOCAL_ON_DB_ERROR=true \
-  --name kdrama-api-local \
-  kdrama-recommender-api:local
-
-# Health check
-curl http://localhost:8001/health
-```
-
----
-
-## Installation et démarrage
-
-### Prérequis
-
-- Python 3.11+
-- pip
-- (Optionnel) Docker
-
-### Installation locale
-
-```bash
-# 1. Cloner le dépôt
-git clone https://github.com/rncp-ai/kdrama-recommender.git
-cd kdrama-recommender/dossier_projet/etape3
-
-# 2. Créer un environnement virtuel
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate   # Windows
-
-# 3. Installer les dépendances
-pip install -r requirements.txt
-
-# 4. Entraîner le modèle (optionnel : l'API le fait automatiquement)
-cd src
-python recommendation_model.py
-
-# 5. Démarrer l'API
-python model_api.py
-```
-
-### Démarrage avec Docker
-
-```bash
-docker build -t kdrama-recommender-api:local -f docker/Dockerfile.model .
-docker run --rm -p 8001:8001 \
-  -e JWT_SECRET_KEY=test-secret \
-  -e ADMIN_PASSWORD=admin123 \
-  -e USER_PASSWORD=user123 \
-  -e USE_LOCAL_DATA_SNAPSHOT=true \
-  -e FALLBACK_TO_LOCAL_ON_DB_ERROR=true \
-  --name kdrama-api-local \
   kdrama-recommender-api:local
 ```
 
-### Exécution des tests
+Vérifiez ensuite le conteneur :
 
 ```bash
-pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=80
-```
-
----
-
-## Variables d'environnement
-
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `JWT_SECRET_KEY` | requis | Clé secrète pour signer les JWT |
-| `JWT_EXPIRATION_HOURS` | `24` | Durée de validité des tokens (heures) |
-| `API_HOST` | `0.0.0.0` | Hôte d'écoute |
-| `API_PORT` | `8001` | Port d'écoute |
-| `API_RELOAD` | `false` | Rechargement automatique (dev) |
-| `LOG_LEVEL` | `info` | Niveau de logging |
-| `API_RATE_LIMIT` | `100/minute` | Rate limit global |
-| `MODEL_RATE_LIMIT` | `30/minute` | Rate limit pour /recommend et /predict |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,...` | Origines CORS autorisées |
-| `ADMIN_PASSWORD` | requis | Mot de passe admin (démo) |
-| `USER_PASSWORD` | requis | Mot de passe user (démo) |
-| `SUPABASE_DB_URL` | optionnel | URL PostgreSQL Supabase (prioritaire) |
-| `DATABASE_URL` | optionnel | URL PostgreSQL alternative |
-| `USE_LOCAL_DATA_SNAPSHOT` | `false` | Force l'usage d'un snapshot local/embarqué |
-| `FALLBACK_TO_LOCAL_ON_DB_ERROR` | `false` | Fallback snapshot/embarqué si DB indisponible |
-| `LOCAL_DATA_SNAPSHOT_PATH` | vide | Chemin absolu vers un CSV local de catalogue |
-
----
-
-## Endpoints de l'API
-
-### Authentification
-
-```bash
-# Obtenir un token JWT
-curl -X POST http://localhost:8001/auth/token \
-  -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "admin123"}'
-```
-
-### Recommandations
-
-```bash
-# Recommandations pour un utilisateur
-curl -X POST http://localhost:8001/recommend \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": 1, "top_k": 10}'
-
-# Dramas similaires
-curl -X POST http://localhost:8001/recommend \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"drama_id": 5, "top_k": 10}'
-```
-
-### Prédiction
-
-```bash
-curl -X POST http://localhost:8001/predict \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": 1, "drama_id": 5}'
-```
-
-### Monitoring
-
-```bash
-# Health check
 curl http://localhost:8001/health
-
-# Métriques Prometheus
-curl http://localhost:8001/metrics
-
-# Alertes (admin)
-curl -H "Authorization: Bearer <admin_token>" http://localhost:8001/alerts
 ```
 
----
+L'image est construite en deux étapes sur `python:3.11-slim`, démarre sous un
+utilisateur non-root et inclut un healthcheck. Les valeurs d'exemple ci-dessus
+ne doivent pas être utilisées en production.
 
-## Compétences RNCP couvertes
+## Stack locale E1 + E3 + E4
 
-| Compétence | Description | Implémentation |
-|------------|-------------|----------------|
-| **C9** | Développer une API REST exposant un modèle d'IA avec authentification | FastAPI + JWT + OWASP + OpenAPI |
-| **C10** | Intégrer une API d'IA dans une application existante | Endpoints REST documentés, CORS, SDK-ready |
-| **C11** | Monitorer un modèle d'IA avec métriques, alertes et dashboard | Prometheus + Grafana + PSI drift detection |
-| **C12** | Programmer des tests automatisés du modèle | pytest (90+ tests), couverture ≥ 80%, tests de non-régression |
-| **C13** | Créer une chaîne de livraison continue MLOps | GitHub Actions : lint → test → train → package → deploy |
+Le fichier [`docker-compose.yml`](../../docker-compose.yml) à la racine
+orchestre PostgreSQL, l'API de données, cette API de modèle et l'application
+web :
 
----
+```powershell
+# à la racine du dépôt (première exécution)
+Copy-Item docker.env.example docker.env
+# Renseigner ensuite les quatre variables obligatoires dans docker.env
+docker compose --env-file docker.env up --build
+```
 
-## Licence
+Les services sont alors exposés sur les ports 8000 (data API), 8001 (model
+API), 8080 (web) et 5433 (PostgreSQL depuis l'hôte). Les secrets locaux sont
+centralisés dans `docker.env`, qui reste hors du dépôt.
 
-MIT — Voir le fichier LICENSE pour plus de détails.
+## Pipeline MLOps
 
-## Auteurs
+Le workflow [`mlops_pipeline.yml`](../../.github/workflows/mlops_pipeline.yml)
+est déclenché pour les modifications de l'étape 3 sur les branches
+`etape3/mlops-modele`, `develop` et `main`, ainsi que leurs pull requests. Il
+enchaîne :
 
-Équipe Data Science / MLOps — Projet RNCP AI
+1. Ruff, Black et MyPy ;
+2. pytest avec couverture minimale de 80 %, rapports JUnit et coverage
+   archivés 30 jours ;
+3. entraînement sur données réelles ou snapshot local, génération et validation
+   d'artefacts ;
+4. construction Docker puis publication dans GHCR pour les pushes (pas pour les
+   pull requests) ;
+5. jobs de staging/production et monitoring post-déploiement, à configurer avec
+   une cible et des secrets réels.
+
+Les étapes de déploiement du workflow affichent actuellement une simulation :
+elles ne sont pas une preuve de déploiement distant. Une exécution GitHub
+Actions réussie du pipeline MLOps est visible dans le dépôt; conservez son URL,
+les artefacts et la preuve d'un futur déploiement réel pour le dossier RNCP.
+
+## Documentation associée
+
+- `src/recommendation_model.py` — modèle hybride et chargement des données ;
+- `src/model_api.py` — contrat et implémentation de l'API ;
+- `src/model_monitoring.py` — métriques, dérive et alertes ;
+- `tests/` — tests automatisés ;
+- `dossier_rapports/etape3/` — rapport et preuves à compléter après validation
+  de l'intégration complète.

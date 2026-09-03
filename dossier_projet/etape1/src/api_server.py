@@ -21,9 +21,10 @@ Projet : Système de recommandation de K-Dramas par IA
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, date, timedelta, timezone
 from typing import Any, Optional
 
 from dotenv import load_dotenv
@@ -40,19 +41,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import (
     Column,
     Integer,
     String,
     Float,
     DateTime,
+    Date,
     Boolean,
     Text,
     ForeignKey,
     create_engine,
     select,
     func,
+    or_,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -74,9 +77,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("api_server")
 
+
+def _required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
 # Variables de configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/kdrama_db")
-JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+DATABASE_URL = _required_env("DATABASE_URL")
+JWT_SECRET = _required_env("JWT_SECRET")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION_MINUTES = int(os.getenv("JWT_EXPIRATION_MINUTES", "60"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
@@ -102,21 +113,57 @@ class Kdrama(Base):
     tmdb_id: Mapped[Optional[int]] = Column(Integer, unique=True)
     titre: Mapped[str] = Column(String(300), nullable=False)
     titre_original: Mapped[Optional[str]] = Column(String(300))
-    date_diffusion: Mapped[Optional[datetime]] = Column(DateTime)
+    english_name: Mapped[Optional[str]] = Column(String(300))
+    date_diffusion: Mapped[Optional[date]] = Column(Date)
+    annee_diffusion: Mapped[Optional[int]] = Column(Integer)
     nb_episodes: Mapped[Optional[int]] = Column(Integer)
     nb_saisons: Mapped[Optional[int]] = Column(Integer)
+    duree_episode: Mapped[Optional[int]] = Column(Integer)
+    duree_episode_minutes: Mapped[Optional[int]] = Column(Integer)
     synopsis: Mapped[Optional[str]] = Column(Text)
     note_moyenne: Mapped[Optional[float]] = Column(Float)
     nb_votes: Mapped[Optional[int]] = Column(Integer)
-    langue_originale: Mapped[Optional[str]] = Column(String(10))
-    pays_origine: Mapped[Optional[str]] = Column(String(10), default="KR")
-    duree_episode_minutes: Mapped[Optional[int]] = Column(Integer)
+    langue_originale: Mapped[Optional[str]] = Column(String(100))
+    pays_origine: Mapped[Optional[str]] = Column(String(100), default="KR")
     source: Mapped[str] = Column(String(50), default="tmdb")
     url_source: Mapped[Optional[str]] = Column(String(500))
+    poster: Mapped[Optional[str]] = Column(String(500))
+    genres: Mapped[Optional[str]] = Column(Text)
+    acteurs: Mapped[Optional[str]] = Column(Text)
+    reseaux_diffusion: Mapped[Optional[str]] = Column(Text)
+    tags: Mapped[Optional[str]] = Column(Text)
+    rang: Mapped[Optional[int]] = Column(Integer)
+    popularite: Mapped[Optional[float]] = Column(Float)
+    nb_watchers: Mapped[Optional[int]] = Column(Integer)
+    realisateur: Mapped[Optional[str]] = Column(String(300))
+    scenariste: Mapped[Optional[str]] = Column(String(300))
     date_creation: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
     date_modification: Mapped[datetime] = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+
+class DramaSentiment(Base):
+    """Modèle ORM pour la table drama_sentiments."""
+    __tablename__ = "drama_sentiments"
+    __table_args__ = {"schema": "kdrama"}
+
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    drama_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.kdramas.id"), nullable=False)
+    ending_type: Mapped[str] = Column(String(20), default="unknown")  # happy, sad, bittersweet, unknown
+    ending_confidence: Mapped[float] = Column(Float, default=0.5)  # 0-1 confidence score
+    sentiment_score: Mapped[float] = Column(Float, default=0.5)  # -1 to 1 sentiment
+    sentiment_summary: Mapped[Optional[str]] = Column(Text)
+    is_ongoing: Mapped[bool] = Column(Boolean, default=False)
+    is_completed: Mapped[bool] = Column(Boolean, default=True)
+    total_episodes: Mapped[Optional[int]] = Column(Integer)
+    scraped_date: Mapped[Optional[datetime]] = Column(DateTime)
+    last_updated: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    source_urls: Mapped[Optional[str]] = Column(Text)  # JSON array of URLs
+    data_quality_score: Mapped[Optional[float]] = Column(Float)
+    top_comments: Mapped[Optional[str]] = Column(Text)  # JSON array
+    notable_triggers: Mapped[Optional[str]] = Column(Text)  # JSON array
+    viewer_consensus: Mapped[Optional[str]] = Column(Text)
 
 
 class Acteur(Base):
@@ -161,6 +208,7 @@ class Utilisateur(Base):
     date_derniere_activite: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
     date_suppression: Mapped[Optional[datetime]] = Column(DateTime)
     est_supprime: Mapped[bool] = Column(Boolean, default=False)
+    fin_heureuse_uniquement: Mapped[bool] = Column(Boolean, default=False)
     date_creation: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
     date_modification: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -176,6 +224,88 @@ class Note(Base):
     note: Mapped[int] = Column(Integer, nullable=False)
     commentaire: Mapped[Optional[str]] = Column(Text)
     date_note: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+
+
+class HistoriqueVisionnage(Base):
+    """Modèle ORM pour la table historique_visionnage (suivi du visionnage)."""
+    __tablename__ = "historique_visionnage"
+    __table_args__ = {"schema": "kdrama"}
+
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    utilisateur_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"))
+    kdrama_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.kdramas.id", ondelete="CASCADE"))
+    episodes_vus: Mapped[Optional[int]] = Column(Integer, default=0)
+    statut: Mapped[str] = Column(String(20), default="en_cours")  # a_voir, en_cours, termine, abandonne
+    date_debut: Mapped[Optional[datetime]] = Column(DateTime)
+    date_fin: Mapped[Optional[datetime]] = Column(DateTime)
+    date_creation: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+    date_modification: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Favori(Base):
+    """Modèle ORM pour la table favoris (liste de favoris K-Drama)."""
+    __tablename__ = "favoris"
+    __table_args__ = {"schema": "kdrama"}
+
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    utilisateur_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"))
+    kdrama_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.kdramas.id", ondelete="CASCADE"))
+    date_ajout: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+
+
+class InteretUtilisateur(Base):
+    """Modèle ORM pour la table interet_utilisateur (want to watch / not interested)."""
+    __tablename__ = "interet_utilisateur"
+    __table_args__ = {"schema": "kdrama"}
+
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    utilisateur_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"))
+    kdrama_id: Mapped[int] = Column(Integer, ForeignKey("kdrama.kdramas.id", ondelete="CASCADE"))
+    interesse: Mapped[bool] = Column(Boolean, nullable=False)
+    date_creation: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+    date_modification: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UtilisateurGenrePrefere(Base):
+    """Modèle ORM pour la table utilisateur_genres_preferes (genres favoris, max 3).
+
+    Stocké par NOM de genre (et non par FK vers kdrama.genres) car la table de
+    référence kdrama.genres est seedée en français (« Comédie », « Drame »…)
+    alors que la donnée réellement collectée — et donc la liste proposée à
+    l'utilisateur — vit dans la colonne kdramas.genres avec les libellés TMDB
+    en anglais (« Action & Adventure », « Sci-Fi & Fantasy »…). Voir
+    /api/v1/kdramas/genres, qui dérive la liste de cette colonne (et alimente
+    aussi le filtre de la page Search), et
+    genre_preferences_by_name_schema.sql pour la migration.
+    """
+    __tablename__ = "utilisateur_genres_preferes"
+    __table_args__ = {"schema": "kdrama"}
+
+    utilisateur_id: Mapped[int] = Column(
+        Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"), primary_key=True
+    )
+    genre_nom: Mapped[str] = Column(String(100), primary_key=True)
+    date_ajout: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
+
+
+class UtilisateurActeurPrefere(Base):
+    """Modèle ORM pour la table utilisateur_acteurs_preferes (acteurs favoris, max 5).
+
+    Stocké par NOM d'acteur (et non par FK vers kdrama.acteurs) car la table
+    de référence kdrama.acteurs n'est pas peuplée par le pipeline de collecte
+    actuel — la source de vérité réelle est la colonne kdramas.acteurs (JSON),
+    au même titre que les genres sont dérivés de kdramas.genres. Voir
+    /api/v1/kdramas/actors, qui dérive la liste des acteurs de cette même
+    colonne pour l'autocomplétion.
+    """
+    __tablename__ = "utilisateur_acteurs_preferes"
+    __table_args__ = {"schema": "kdrama"}
+
+    utilisateur_id: Mapped[int] = Column(
+        Integer, ForeignKey("kdrama.utilisateurs.id", ondelete="CASCADE"), primary_key=True
+    )
+    acteur_nom: Mapped[str] = Column(String(200), primary_key=True)
+    date_ajout: Mapped[datetime] = Column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -241,9 +371,23 @@ def creer_token_jwt(donnees: dict, expires_delta: Optional[timedelta] = None) ->
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
+# Dépendance : session de base de données
+def get_db():
+    """Fournit une session de base de données par requête.
+
+    Yields:
+        Session SQLAlchemy.
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(lambda: SessionLocal()),
+    db: Session = Depends(get_db),
 ) -> Utilisateur:
     """Dépendance FastAPI : récupère l'utilisateur courant depuis le token JWT.
 
@@ -252,7 +396,9 @@ def get_current_user(
         db: Session de base de données.
 
     Returns:
-        Objet Utilisateur authentifié.
+        Objet Utilisateur authentifié, rattaché à la session de la requête
+        (get_db) : les endpoints peuvent donc modifier l'objet et committer
+        via leur propre `db`.
 
     Raises:
         HTTPException: 401 si le token est invalide ou l'utilisateur introuvable.
@@ -277,7 +423,10 @@ def get_current_user(
     if utilisateur is None:
         raise credentials_exception
 
-    db.close()
+    # Pas de db.close() ici : la session est celle de la requête (get_db), qui
+    # la ferme elle-même. La fermer ici détacherait l'objet Utilisateur, et
+    # toute modification faite ensuite par un endpoint (préférences, RGPD art.
+    # 17) serait silencieusement perdue au commit.
     return utilisateur
 
 
@@ -311,14 +460,26 @@ class KdramaBase(BaseModel):
     """Modèle de base pour un K-Drama."""
     titre: str = Field(..., max_length=300, description="International title of the K-Drama")
     titre_original: Optional[str] = Field(None, max_length=300)
+    english_name: Optional[str] = Field(None, max_length=300)
     date_diffusion: Optional[datetime] = None
     nb_episodes: Optional[int] = Field(None, gt=0)
     nb_saisons: Optional[int] = Field(None, gt=0)
+    duree_episode: Optional[int] = None
     synopsis: Optional[str] = None
     note_moyenne: Optional[float] = Field(None, ge=0, le=10)
     nb_votes: Optional[int] = Field(None, ge=0)
-    langue_originale: Optional[str] = Field(None, max_length=10)
-    pays_origine: Optional[str] = Field("KR", max_length=10)
+    langue_originale: Optional[str] = Field(None, max_length=100)
+    pays_origine: Optional[str] = Field("KR", max_length=100)
+    poster: Optional[str] = None
+    genres: Optional[str] = None
+    acteurs: Optional[str] = None
+    reseaux_diffusion: Optional[str] = None
+    tags: Optional[str] = None
+    rang: Optional[int] = None
+    popularite: Optional[float] = None
+    nb_watchers: Optional[int] = None
+    realisateur: Optional[str] = None
+    scenariste: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -394,9 +555,51 @@ class UserResponse(BaseModel):
     role: str
     consentement_collecte: bool
     consentement_marketing: bool
+    fin_heureuse_uniquement: bool = False
+    genres_preferes: list[str] = Field(default_factory=list)
+    acteurs_preferes: list[str] = Field(default_factory=list)
+    nb_dramas_vus: int = 0
+    nb_favoris: int = 0
 
     class Config:
         from_attributes = True
+
+
+class PreferencesUpdate(BaseModel):
+    """Modèle pour la mise à jour des préférences de recommandation (toutes optionnelles)."""
+    genres: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Noms des genres favoris (maximum 3). Voir /api/v1/kdramas/genres "
+            "pour la liste proposée (source de vérité : colonne "
+            "kdramas.genres, la même que le filtre de la page Search)."
+        ),
+    )
+    acteurs: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Noms des acteurs/actrices favoris (maximum 5). Voir "
+            "/api/v1/kdramas/actors pour l'autocomplétion (source de "
+            "vérité : colonne kdramas.acteurs, comme pour les genres)."
+        ),
+    )
+    fin_heureuse_uniquement: Optional[bool] = Field(
+        None, description="Ne recommander que des dramas à fin heureuse."
+    )
+
+    @field_validator("genres")
+    @classmethod
+    def _valider_genres(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v is not None and len(v) > 3:
+            raise ValueError("Maximum 3 favorite genres allowed")
+        return v
+
+    @field_validator("acteurs")
+    @classmethod
+    def _valider_acteurs(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v is not None and len(v) > 5:
+            raise ValueError("Maximum 5 favorite actors allowed")
+        return v
 
 
 class Token(BaseModel):
@@ -420,6 +623,87 @@ class NoteResponse(BaseModel):
     note: int
     commentaire: Optional[str] = None
     date_note: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FavoriResponse(BaseModel):
+    """Modèle de réponse pour un favori."""
+    id: int
+    utilisateur_id: int
+    kdrama_id: int
+    date_ajout: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class HistoriqueVisionnageUpsert(BaseModel):
+    """Modèle pour créer/mettre à jour une entrée d'historique de visionnage."""
+    kdrama_id: int
+    episodes_vus: int = Field(0, ge=0)
+    statut: str = Field(
+        "en_cours",
+        pattern="^(a_voir|en_cours|termine|abandonne)$",
+        description="a_voir, en_cours, termine ou abandonne",
+    )
+
+
+class HistoriqueVisionnageResponse(BaseModel):
+    """Modèle de réponse pour une entrée d'historique de visionnage."""
+    id: int
+    utilisateur_id: int
+    kdrama_id: int
+    episodes_vus: int
+    statut: str
+    date_debut: Optional[datetime] = None
+    date_fin: Optional[datetime] = None
+    date_creation: datetime
+    date_modification: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InteretUpdate(BaseModel):
+    """Modèle pour signaler l'intérêt d'un utilisateur pour un drama."""
+    interesse: bool = Field(
+        ..., description="True = je veux regarder, False = pas intéressé(e)"
+    )
+
+
+class InteretResponse(BaseModel):
+    """Modèle de réponse pour un retour d'intérêt utilisateur."""
+    id: int
+    utilisateur_id: int
+    kdrama_id: int
+    interesse: bool
+    date_creation: datetime
+    date_modification: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DramaSentimentResponse(BaseModel):
+    """Modèle de réponse pour le sentiment d'un drama."""
+    id: int
+    drama_id: int
+    ending_type: str  # happy, sad, bittersweet, unknown
+    ending_confidence: float
+    sentiment_score: float
+    sentiment_summary: Optional[str] = None
+    is_ongoing: bool
+    is_completed: bool
+    total_episodes: Optional[int] = None
+    scraped_date: Optional[datetime] = None
+    last_updated: datetime
+    source_urls: Optional[str] = None
+    data_quality_score: Optional[float] = None
+    top_comments: Optional[str] = None
+    notable_triggers: Optional[str] = None
+    viewer_consensus: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -455,23 +739,26 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
 
-# Dépendance : session de base de données
-def get_db():
-    """Fournit une session de base de données par requête.
-
-    Yields:
-        Session SQLAlchemy.
-    """
-    db = SessionLocal()
+# Middleware pour logger tous les requêtes
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"\n>>> REQUEST: {request.method} {request.url.path}", flush=True)
     try:
-        yield db
-    finally:
-        db.close()
+        response = await call_next(request)
+        print(f"<<< RESPONSE: {response.status_code}", flush=True)
+        return response
+    except Exception as e:
+        print(f"!!! ERROR: {type(e).__name__}: {e}", flush=True)
+        raise
+
+
+# La dépendance get_db est définie plus haut (avant get_current_user, qui en
+# dépend pour partager une seule session par requête).
 
 
 @app.get("/", include_in_schema=False, summary="Redirection vers la documentation")
@@ -480,9 +767,86 @@ def root():
     return RedirectResponse(url="/docs")
 
 
+@app.get("/test-db", summary="Test database connection")
+def test_db(db: Session = Depends(get_db)):
+    """Simple test to verify database works."""
+    try:
+        count = db.query(Kdrama).count()
+        return {"status": "ok", "kdrama_count": count}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "type": type(e).__name__}
+
+
 # ---------------------------------------------------------------------------
 # Endpoints d'authentification
 # ---------------------------------------------------------------------------
+def _noms_uniques_nettoyes(noms: list[str]) -> list[str]:
+    """Nettoie une liste de noms de préférence (genres ou acteurs).
+
+    Les préférences de genres comme d'acteurs sont stockées par nom, dans le
+    vocabulaire du catalogue (colonnes kdramas.genres / kdramas.acteurs).
+
+    Args:
+        noms: Noms bruts reçus du client.
+
+    Returns:
+        Les noms non vides, sans espaces superflus, dédoublonnés en
+        conservant l'ordre de sélection.
+    """
+    nettoyes: list[str] = []
+    for nom in noms:
+        nom_propre = nom.strip()
+        if nom_propre and nom_propre not in nettoyes:
+            nettoyes.append(nom_propre)
+    return nettoyes
+
+
+def build_user_response(utilisateur: "Utilisateur", db: Session) -> "UserResponse":
+    """Construit un UserResponse enrichi (préférences + statistiques).
+
+    Args:
+        utilisateur: Utilisateur authentifié.
+        db: Session de base de données.
+
+    Returns:
+        UserResponse avec genres/acteurs favoris et compteurs.
+    """
+    genres_preferes = [
+        row.genre_nom
+        for row in db.query(UtilisateurGenrePrefere)
+        .filter(UtilisateurGenrePrefere.utilisateur_id == utilisateur.id)
+        .order_by(UtilisateurGenrePrefere.genre_nom)
+        .all()
+    ]
+    acteurs_preferes = [
+        row.acteur_nom
+        for row in db.query(UtilisateurActeurPrefere)
+        .filter(UtilisateurActeurPrefere.utilisateur_id == utilisateur.id)
+        .order_by(UtilisateurActeurPrefere.acteur_nom)
+        .all()
+    ]
+    nb_dramas_vus = (
+        db.query(HistoriqueVisionnage)
+        .filter(HistoriqueVisionnage.utilisateur_id == utilisateur.id)
+        .count()
+    )
+    nb_favoris = db.query(Favori).filter(Favori.utilisateur_id == utilisateur.id).count()
+
+    return UserResponse(
+        id=utilisateur.id,
+        pseudonyme=utilisateur.pseudonyme,
+        date_inscription=utilisateur.date_inscription,
+        role=utilisateur.role,
+        consentement_collecte=utilisateur.consentement_collecte,
+        consentement_marketing=utilisateur.consentement_marketing,
+        fin_heureuse_uniquement=utilisateur.fin_heureuse_uniquement,
+        genres_preferes=genres_preferes,
+        acteurs_preferes=acteurs_preferes,
+        nb_dramas_vus=nb_dramas_vus,
+        nb_favoris=nb_favoris,
+    )
+
+
 @app.post(
     "/api/v1/auth/register",
     response_model=UserResponse,
@@ -542,7 +906,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     db.refresh(nouvel_utilisateur)
 
     logger.info("Nouvel utilisateur inscrit: %s (id=%d)", user_data.pseudonyme, nouvel_utilisateur.id)
-    return nouvel_utilisateur
+    return build_user_response(nouvel_utilisateur, db)
 
 
 @app.post(
@@ -585,8 +949,11 @@ def login(
     utilisateur.date_derniere_activite = datetime.utcnow()
     db.commit()
 
+    # NOTE: ce token (sub=id utilisateur réel, HS256, JWT_SECRET) est aussi
+    # accepté tel quel par le model-api de l'étape 3 (/recommend, /predict),
+    # qui partage le même secret — voir dossier_projet/etape3/src/model_api.py.
     token = creer_token_jwt(
-        data={"sub": str(utilisateur.id), "role": utilisateur.role}
+        donnees={"sub": str(utilisateur.id), "role": utilisateur.role}
     )
     logger.info("Connexion réussie: %s (id=%d)", utilisateur.pseudonyme, utilisateur.id)
     return Token(
@@ -602,16 +969,86 @@ def login(
     summary="Profil de l'utilisateur connecté",
     description="Returns the authenticated user's information.",
 )
-def get_me(current_user: Utilisateur = Depends(get_current_user)):
+def get_me(
+    current_user: Utilisateur = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Retourne le profil de l'utilisateur connecté.
 
     Args:
         current_user: Utilisateur authentifié (via JWT).
+        db: Session de base de données.
 
     Returns:
-        Les informations de l'utilisateur (sans données sensibles).
+        Les informations de l'utilisateur (sans données sensibles), avec
+        préférences de recommandation et statistiques.
     """
-    return current_user
+    return build_user_response(current_user, db)
+
+
+@app.patch(
+    "/api/v1/auth/me/preferences",
+    response_model=UserResponse,
+    summary="Mise à jour des préférences de recommandation",
+    description=(
+        "Updates the authenticated user's optional recommendation preferences: "
+        "favorite genres (max 3), favorite actors (max 5), and the strict "
+        "happy-ending-only flag. All fields are optional; omit a field to "
+        "leave it unchanged."
+    ),
+)
+def update_my_preferences(
+    prefs: PreferencesUpdate,
+    current_user: Utilisateur = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Met à jour les préférences de recommandation de l'utilisateur connecté.
+
+    Args:
+        prefs: Genres favoris (noms, max 3), acteurs favoris (noms, max 5) et/ou
+            préférence de fin heureuse. Tous les champs sont optionnels.
+        current_user: Utilisateur authentifié.
+        db: Session de base de données.
+
+    Returns:
+        Le profil utilisateur mis à jour.
+    """
+    if prefs.fin_heureuse_uniquement is not None:
+        current_user.fin_heureuse_uniquement = prefs.fin_heureuse_uniquement
+
+    if prefs.genres is not None:
+        # Pas de validation d'existence contre kdrama.genres : cette table de
+        # référence est seedée en français alors que le catalogue réel (colonne
+        # kdramas.genres, exposée par /api/v1/kdramas/genres et utilisée aussi
+        # par le filtre de la page Search) porte les libellés TMDB en anglais.
+        # On stocke donc le nom sélectionné, dans le vocabulaire du catalogue.
+        noms_genres = _noms_uniques_nettoyes(prefs.genres)
+
+        db.query(UtilisateurGenrePrefere).filter(
+            UtilisateurGenrePrefere.utilisateur_id == current_user.id
+        ).delete()
+        for nom_propre in noms_genres:
+            db.add(UtilisateurGenrePrefere(utilisateur_id=current_user.id, genre_nom=nom_propre))
+
+    if prefs.acteurs is not None:
+        # Pas de validation d'existence contre une table de référence : la
+        # table kdrama.acteurs n'est pas peuplée par le pipeline de collecte
+        # (cf. /api/v1/kdramas/actors, dérivé en direct de kdramas.acteurs,
+        # exactement comme les genres le sont de kdramas.genres). On stocke
+        # donc le nom saisi/sélectionné directement, après nettoyage.
+        noms_acteurs = _noms_uniques_nettoyes(prefs.acteurs)
+
+        db.query(UtilisateurActeurPrefere).filter(
+            UtilisateurActeurPrefere.utilisateur_id == current_user.id
+        ).delete()
+        for nom_propre in noms_acteurs:
+            db.add(
+                UtilisateurActeurPrefere(utilisateur_id=current_user.id, acteur_nom=nom_propre)
+            )
+
+    db.commit()
+    logger.info("Préférences mises à jour pour l'utilisateur id=%d", current_user.id)
+    return build_user_response(current_user, db)
 
 
 @app.delete(
@@ -627,7 +1064,9 @@ def delete_me(
     """Implémente le droit à l'effacement (RGPD art. 17).
 
     Anonymise le compte au lieu de le supprimer physiquement pour
-    préserver l'intégrité référentielle des notes et avis existants.
+    préserver l'intégrité référentielle des notes et avis existants, et
+    supprime toutes les données personnelles liées aux préférences de
+    recommandation (historique, favoris, intérêts, genres/acteurs favoris).
 
     Args:
         current_user: Utilisateur authentifié.
@@ -639,7 +1078,23 @@ def delete_me(
     current_user.consentement_collecte = False
     current_user.consentement_marketing = False
     current_user.date_consentement = None
+    current_user.fin_heureuse_uniquement = False
     current_user.est_supprime = True
+
+    db.query(HistoriqueVisionnage).filter(
+        HistoriqueVisionnage.utilisateur_id == current_user.id
+    ).delete()
+    db.query(Favori).filter(Favori.utilisateur_id == current_user.id).delete()
+    db.query(InteretUtilisateur).filter(
+        InteretUtilisateur.utilisateur_id == current_user.id
+    ).delete()
+    db.query(UtilisateurGenrePrefere).filter(
+        UtilisateurGenrePrefere.utilisateur_id == current_user.id
+    ).delete()
+    db.query(UtilisateurActeurPrefere).filter(
+        UtilisateurActeurPrefere.utilisateur_id == current_user.id
+    ).delete()
+
     db.commit()
     logger.info("Compte anonymisé (RGPD art. 17): id=%d", current_user.id)
 
@@ -660,9 +1115,24 @@ def export_my_data(
         db: Session de base de données.
 
     Returns:
-        Dictionnaire JSON contenant toutes les données de l'utilisateur.
+        Dictionnaire JSON contenant toutes les données de l'utilisateur,
+        y compris les préférences de recommandation (genres/acteurs
+        favoris, fin heureuse), les favoris, l'historique de visionnage
+        et les retours d'intérêt.
     """
     notes = db.query(Note).filter(Note.utilisateur_id == current_user.id).all()
+    historique = (
+        db.query(HistoriqueVisionnage)
+        .filter(HistoriqueVisionnage.utilisateur_id == current_user.id)
+        .all()
+    )
+    favoris = db.query(Favori).filter(Favori.utilisateur_id == current_user.id).all()
+    interets = (
+        db.query(InteretUtilisateur)
+        .filter(InteretUtilisateur.utilisateur_id == current_user.id)
+        .all()
+    )
+    profil = build_user_response(current_user, db)
     return {
         "utilisateur": {
             "id": current_user.id,
@@ -671,6 +1141,9 @@ def export_my_data(
             "role": current_user.role,
             "consentement_collecte": current_user.consentement_collecte,
             "consentement_marketing": current_user.consentement_marketing,
+            "fin_heureuse_uniquement": current_user.fin_heureuse_uniquement,
+            "genres_preferes": profil.genres_preferes,
+            "acteurs_preferes": profil.acteurs_preferes,
         },
         "notes": [
             {
@@ -682,6 +1155,29 @@ def export_my_data(
             }
             for n in notes
         ],
+        "historique_visionnage": [
+            {
+                "id": h.id,
+                "kdrama_id": h.kdrama_id,
+                "episodes_vus": h.episodes_vus,
+                "statut": h.statut,
+                "date_creation": h.date_creation.isoformat(),
+            }
+            for h in historique
+        ],
+        "favoris": [
+            {"id": f.id, "kdrama_id": f.kdrama_id, "date_ajout": f.date_ajout.isoformat()}
+            for f in favoris
+        ],
+        "interets": [
+            {
+                "id": i.id,
+                "kdrama_id": i.kdrama_id,
+                "interesse": i.interesse,
+                "date_creation": i.date_creation.isoformat(),
+            }
+            for i in interets
+        ],
         "export_date": datetime.utcnow().isoformat(),
     }
 
@@ -689,62 +1185,269 @@ def export_my_data(
 # ---------------------------------------------------------------------------
 # Endpoints CRUD — K-Dramas
 # ---------------------------------------------------------------------------
+@app.get("/api/v1/test-simple")
+def test_simple():
+    """Simple test without database."""
+    logger.info("test_simple endpoint called")
+    return {"status": "ok", "message": "Simple test works"}
+
+
+@app.get("/api/v1/kdramas-simple")
+def list_kdramas_simple(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    db: Session = Depends(get_db),
+):
+    """Test kdramas endpoint with database."""
+    logger.info(f"list_kdramas_simple called")
+
+    try:
+        logger.info("Querying kdramas from database")
+        kdramas = db.query(Kdrama).limit(page_size).all()
+        logger.info(f"Got {len(kdramas)} kdramas")
+
+        return {
+            "items": [{"id": k.id, "titre": k.titre, "poster": k.poster} for k in kdramas],
+            "total": len(kdramas),
+        }
+    except Exception as e:
+        logger.error(f"ERROR: {type(e).__name__}: {e}", exc_info=True)
+        raise
+
+
+
+
 @app.get(
     "/api/v1/kdramas",
-    response_model=PaginatedResponse,
     summary="Liste paginée des K-Dramas",
     description="Returns a paginated, sortable list of K-Dramas with optional search.",
 )
 def list_kdramas(
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=1000, description="Items per page"),
     search: Optional[str] = Query(None, description="Search by title"),
+    genre: Optional[str] = Query(None, description="Filter by genre(s), comma-separated for multiple"),
     sort_by: str = Query("note_moyenne", description="Sort field"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
     db: Session = Depends(get_db),
 ):
-    """Retourne la liste paginée des K-Dramas.
+    print(f"\n=== list_kdramas START: page={page}, page_size={page_size}, genre={genre} ===")
+    try:
+        print("1. Creating query")
+        query = db.query(Kdrama)
+        print("2. Query created")
+
+        if search:
+            print(f"3. Applying search: {search}")
+            query = query.filter(
+                (Kdrama.titre.ilike(f"%{search}%"))
+                | (Kdrama.titre_original.ilike(f"%{search}%"))
+            )
+
+        if genre:
+            # Supports one or several comma-separated genres (OR match against any of them).
+            # Genres field contains messy strings like: ["Comedy", "Drama"] or "Comedy, Drama"
+            genre_list = [g.strip() for g in genre.split(",") if g.strip()]
+            print(f"4. Applying genre filter: {genre_list}")
+            if genre_list:
+                query = query.filter(
+                    or_(*[Kdrama.genres.ilike(f"%{g}%") for g in genre_list])
+                )
+            print(f"   Genre filter: genres ILIKE ANY of {genre_list}")
+            test_count = query.count()
+            print(f"   Results after genre filter: {test_count}")
+
+        print(f"5. Applying sort: {sort_by} {sort_order}")
+        sort_column = getattr(Kdrama, sort_by, Kdrama.note_moyenne)
+        if sort_order == "desc":
+            sort_column = sort_column.desc()
+        query = query.order_by(sort_column)
+
+        print("6. Counting total")
+        total = query.count()
+        print(f"7. Total: {total}")
+
+        offset = (page - 1) * page_size
+        print(f"8. Fetching offset={offset}, limit={page_size}")
+        kdramas = query.offset(offset).limit(page_size).all()
+        print(f"9. Fetched {len(kdramas)} rows")
+
+        print("10. Building items list")
+        items = []
+        for i, k in enumerate(kdramas):
+            print(f"  - Item {i}: id={k.id}, titre={k.titre[:30] if k.titre else 'None'}")
+            items.append({
+                "id": k.id,
+                "titre": k.titre,
+                "poster": k.poster,
+                "genres": k.genres,
+                "note_moyenne": float(k.note_moyenne) if k.note_moyenne else 0,
+                "nb_episodes": k.nb_episodes or 0,
+                "annee_diffusion": k.annee_diffusion or 0,
+                "synopsis": k.synopsis or "",
+            })
+
+        print(f"11. Built {len(items)} items")
+        result = {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size,
+        }
+        print(f"12. Returning result\n=== list_kdramas SUCCESS ===\n")
+        return result
+
+    except Exception as e:
+        print(f"\n!!! ERROR: {type(e).__name__}: {e}")
+        import traceback
+        print(traceback.format_exc())
+        print("!!! END ERROR\n")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error: {type(e).__name__}: {str(e)}"
+        )
+
+
+@app.get(
+    "/api/v1/kdramas/genres",
+    summary="Genres from K-Dramas catalog",
+    description="Returns unique genres extracted from the kdramas table (source of truth)",
+)
+def list_kdrama_genres(db: Session = Depends(get_db)):
+    """Returns unique genres from the kdramas table.
+
+    This endpoint queries the actual K-Drama genres field and extracts unique values,
+    providing the authoritative list of genres available in the catalog.
 
     Args:
-        page: Numéro de page (commence à 1).
-        page_size: Taille de page (1 à 100).
-        search: Filtre de recherche sur le titre (ILIKE).
-        sort_by: Champ de tri (note_moyenne, date_diffusion, titre, nb_votes).
-        sort_order: Ordre de tri (asc ou desc).
         db: Session de base de données.
 
     Returns:
-        Réponse paginée contenant les K-Dramas.
+        List of unique genres from kdramas table.
     """
-    query = db.query(Kdrama)
+    from sqlalchemy import text
 
-    # Filtre de recherche
-    if search:
-        query = query.filter(
-            (Kdrama.titre.ilike(f"%{search}%"))
-            | (Kdrama.titre_original.ilike(f"%{search}%"))
+    try:
+        result = db.execute(
+            text("""
+                SELECT DISTINCT
+                  TRIM(regexp_replace(
+                    TRIM(unnest(string_to_array(genres, ','))),
+                    '["\[\]\\\\]', '', 'g'
+                  )) AS genre
+                FROM kdrama.kdramas
+                WHERE genres IS NOT NULL AND genres != ''
+                ORDER BY genre
+            """)
         )
+        genres = [row[0] for row in result.fetchall() if row[0] and row[0].strip()]
+        return genres
+    except Exception as e:
+        logger.error("Error fetching kdrama genres: %s", e)
+        return []
 
-    # Tri
-    sort_column = getattr(Kdrama, sort_by, Kdrama.note_moyenne)
-    if sort_order == "desc":
-        sort_column = sort_column.desc()
-    query = query.order_by(sort_column)
 
-    # Total avant pagination
-    total = query.count()
+# Cache en mémoire des noms d'acteurs extraits du catalogue (voir
+# list_kdrama_actors). La table de référence kdrama.acteurs n'étant pas
+# peuplée par le pipeline de collecte actuel, les noms d'acteurs sont
+# dérivés en direct de la colonne JSON kdramas.acteurs, au même titre que
+# les genres le sont de kdramas.genres. Cette extraction est plus coûteuse
+# que celle des genres (parsing JSON par ligne), d'où le cache à courte
+# durée de vie pour éviter de la refaire à chaque frappe de l'autocomplétion.
+_ACTOR_CATALOG_CACHE: dict[str, Any] = {"names": None, "loaded_at": 0.0}
+_ACTOR_CATALOG_CACHE_TTL_SECONDS = 300.0
 
-    # Pagination
-    offset = (page - 1) * page_size
-    kdramas = query.offset(offset).limit(page_size).all()
 
-    return {
-        "items": kdramas,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size,
-    }
+def _load_actor_catalog_names(db: Session) -> list[str]:
+    """Extrait les noms d'acteurs uniques depuis kdramas.acteurs (JSON), avec cache.
+
+    Args:
+        db: Session de base de données.
+
+    Returns:
+        Liste triée des noms d'acteurs uniques trouvés dans le catalogue.
+    """
+    import time as _time
+    from sqlalchemy import text
+
+    now = _time.monotonic()
+    cached_names = _ACTOR_CATALOG_CACHE.get("names")
+    if (
+        cached_names is not None
+        and (now - _ACTOR_CATALOG_CACHE.get("loaded_at", 0.0)) < _ACTOR_CATALOG_CACHE_TTL_SECONDS
+    ):
+        return cached_names
+
+    result = db.execute(
+        text(
+            "SELECT acteurs FROM kdrama.kdramas WHERE acteurs IS NOT NULL AND acteurs != ''"
+        )
+    )
+    seen: dict[str, None] = {}
+    for (raw_acteurs,) in result.fetchall():
+        try:
+            entries = json.loads(raw_acteurs)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            nom = entry.get("nom")
+            if isinstance(nom, str) and nom.strip():
+                seen.setdefault(nom.strip(), None)
+
+    names = sorted(seen.keys())
+    _ACTOR_CATALOG_CACHE["names"] = names
+    _ACTOR_CATALOG_CACHE["loaded_at"] = now
+    return names
+
+
+@app.get(
+    "/api/v1/kdramas/actors",
+    summary="Actors from K-Dramas catalog",
+    description=(
+        "Returns unique actor names extracted from the kdramas table "
+        "(source of truth), with optional substring search — the actor "
+        "equivalent of /api/v1/kdramas/genres."
+    ),
+)
+def list_kdrama_actors(
+    search: Optional[str] = Query(
+        None, description="Filter actor names by substring (case-insensitive)"
+    ),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of results"),
+    db: Session = Depends(get_db),
+):
+    """Returns unique actor names from the kdramas.acteurs JSON column.
+
+    This mirrors list_kdrama_genres(): the kdrama.acteurs reference table is
+    not populated by the current collection pipeline, so the authoritative
+    list of actor names comes directly from the K-Drama catalog itself.
+
+    Args:
+        search: Optional case-insensitive substring filter (for autocomplete).
+        limit: Maximum number of results to return.
+        db: Session de base de données.
+
+    Returns:
+        List of unique actor names matching the search, source of truth =
+        kdramas.acteurs.
+    """
+    try:
+        names = _load_actor_catalog_names(db)
+    except Exception as e:
+        logger.error("Error fetching kdrama actors: %s", e)
+        return []
+
+    if search:
+        needle = search.strip().lower()
+        if needle:
+            names = [name for name in names if needle in name.lower()]
+
+    return names[:limit]
 
 
 @app.get(
@@ -1067,6 +1770,421 @@ def create_note(
     db.refresh(nouvelle_note)
     logger.info("Note créée: kdrama=%d, user=%d, note=%d", kdrama_id, current_user.id, note_data.note)
     return nouvelle_note
+
+
+# ---------------------------------------------------------------------------
+# Endpoints — Favoris (bookmarks, distincts des notes)
+# ---------------------------------------------------------------------------
+@app.get(
+    "/api/v1/favoris",
+    response_model=list[FavoriResponse],
+    summary="Liste des favoris de l'utilisateur connecté",
+)
+def list_my_favoris(
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Retourne la liste des favoris de l'utilisateur connecté.
+
+    Args:
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Liste des favoris, du plus récent au plus ancien.
+    """
+    return (
+        db.query(Favori)
+        .filter(Favori.utilisateur_id == current_user.id)
+        .order_by(Favori.date_ajout.desc())
+        .all()
+    )
+
+
+@app.post(
+    "/api/v1/favoris/{kdrama_id}",
+    response_model=FavoriResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ajouter un K-Drama aux favoris",
+)
+def add_favori(
+    kdrama_id: int,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Ajoute un K-Drama aux favoris de l'utilisateur connecté (idempotent).
+
+    Args:
+        kdrama_id: Identifiant du K-Drama à ajouter.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Le favori créé (ou existant si déjà présent).
+
+    Raises:
+        HTTPException: 404 si le K-Drama n'existe pas.
+    """
+    if not db.query(Kdrama).filter(Kdrama.id == kdrama_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    existant = db.query(Favori).filter(
+        Favori.utilisateur_id == current_user.id,
+        Favori.kdrama_id == kdrama_id,
+    ).first()
+    if existant:
+        return existant
+
+    favori = Favori(utilisateur_id=current_user.id, kdrama_id=kdrama_id)
+    db.add(favori)
+    db.commit()
+    db.refresh(favori)
+    logger.info("Favori ajouté: kdrama=%d, user=%d", kdrama_id, current_user.id)
+    return favori
+
+
+@app.delete(
+    "/api/v1/favoris/{kdrama_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Retirer un K-Drama des favoris",
+)
+def remove_favori(
+    kdrama_id: int,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Retire un K-Drama des favoris de l'utilisateur connecté.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama à retirer.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+    """
+    db.query(Favori).filter(
+        Favori.utilisateur_id == current_user.id,
+        Favori.kdrama_id == kdrama_id,
+    ).delete()
+    db.commit()
+    logger.info("Favori retiré: kdrama=%d, user=%d", kdrama_id, current_user.id)
+
+
+# ---------------------------------------------------------------------------
+# Endpoints — Historique de visionnage
+# ---------------------------------------------------------------------------
+@app.get(
+    "/api/v1/historique",
+    response_model=list[HistoriqueVisionnageResponse],
+    summary="Historique de visionnage de l'utilisateur connecté",
+)
+def list_my_historique(
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Retourne l'historique de visionnage de l'utilisateur connecté.
+
+    Args:
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Liste des entrées d'historique, de la plus récente à la plus ancienne.
+    """
+    return (
+        db.query(HistoriqueVisionnage)
+        .filter(HistoriqueVisionnage.utilisateur_id == current_user.id)
+        .order_by(HistoriqueVisionnage.date_modification.desc())
+        .all()
+    )
+
+
+@app.put(
+    "/api/v1/historique/{kdrama_id}",
+    response_model=HistoriqueVisionnageResponse,
+    summary="Créer/mettre à jour une entrée d'historique de visionnage",
+)
+def upsert_historique(
+    kdrama_id: int,
+    payload: HistoriqueVisionnageUpsert,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Crée ou met à jour le statut de visionnage d'un K-Drama.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama.
+        payload: Statut et nombre d'épisodes vus.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        L'entrée d'historique créée ou mise à jour.
+
+    Raises:
+        HTTPException: 404 si le K-Drama n'existe pas.
+    """
+    if not db.query(Kdrama).filter(Kdrama.id == kdrama_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    entree = db.query(HistoriqueVisionnage).filter(
+        HistoriqueVisionnage.utilisateur_id == current_user.id,
+        HistoriqueVisionnage.kdrama_id == kdrama_id,
+    ).first()
+
+    if entree is None:
+        entree = HistoriqueVisionnage(
+            utilisateur_id=current_user.id,
+            kdrama_id=kdrama_id,
+            episodes_vus=payload.episodes_vus,
+            statut=payload.statut,
+            date_debut=datetime.utcnow(),
+        )
+        db.add(entree)
+    else:
+        entree.episodes_vus = payload.episodes_vus
+        entree.statut = payload.statut
+        if payload.statut == "termine" and entree.date_fin is None:
+            entree.date_fin = datetime.utcnow()
+
+    db.commit()
+    db.refresh(entree)
+    logger.info(
+        "Historique mis à jour: kdrama=%d, user=%d, statut=%s",
+        kdrama_id, current_user.id, payload.statut,
+    )
+    return entree
+
+
+@app.delete(
+    "/api/v1/historique/{kdrama_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Supprimer une entrée d'historique de visionnage",
+)
+def delete_historique(
+    kdrama_id: int,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Supprime l'entrée d'historique de visionnage d'un K-Drama.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Raises:
+        HTTPException: 404 si le K-Drama n'existe pas.
+    """
+    if not db.query(Kdrama).filter(Kdrama.id == kdrama_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    entree = db.query(HistoriqueVisionnage).filter(
+        HistoriqueVisionnage.utilisateur_id == current_user.id,
+        HistoriqueVisionnage.kdrama_id == kdrama_id,
+    ).first()
+
+    if entree is not None:
+        db.delete(entree)
+        db.commit()
+        logger.info(
+            "Historique supprimé: kdrama=%d, user=%d",
+            kdrama_id, current_user.id,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints — Intérêt utilisateur ("want to watch" / "not interested")
+# ---------------------------------------------------------------------------
+@app.put(
+    "/api/v1/kdramas/{kdrama_id}/interet",
+    response_model=InteretResponse,
+    summary="Signaler l'intérêt pour un K-Drama",
+    description=(
+        "Records whether the authenticated user wants to watch (interesse=true) "
+        "or is not interested (interesse=false) in a K-Drama. Used both for the "
+        "user's own experience and as feedback/training signal for the "
+        "recommendation model (etape 3)."
+    ),
+)
+def set_interet(
+    kdrama_id: int,
+    payload: InteretUpdate,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Crée ou met à jour le retour d'intérêt d'un utilisateur pour un drama.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama.
+        payload: Intérêt (True = veut regarder, False = pas intéressé).
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Le retour d'intérêt créé ou mis à jour.
+
+    Raises:
+        HTTPException: 404 si le K-Drama n'existe pas.
+    """
+    if not db.query(Kdrama).filter(Kdrama.id == kdrama_id).first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    entree = db.query(InteretUtilisateur).filter(
+        InteretUtilisateur.utilisateur_id == current_user.id,
+        InteretUtilisateur.kdrama_id == kdrama_id,
+    ).first()
+
+    if entree is None:
+        entree = InteretUtilisateur(
+            utilisateur_id=current_user.id,
+            kdrama_id=kdrama_id,
+            interesse=payload.interesse,
+        )
+        db.add(entree)
+    else:
+        entree.interesse = payload.interesse
+
+    db.commit()
+    db.refresh(entree)
+    logger.info(
+        "Intérêt enregistré: kdrama=%d, user=%d, interesse=%s",
+        kdrama_id, current_user.id, payload.interesse,
+    )
+    return entree
+
+
+@app.get(
+    "/api/v1/kdramas/{kdrama_id}/interet",
+    response_model=Optional[InteretResponse],
+    summary="Récupérer l'intérêt de l'utilisateur pour un K-Drama",
+)
+def get_interet(
+    kdrama_id: int,
+    db: Session = Depends(get_db),
+    current_user: Utilisateur = Depends(get_current_user),
+):
+    """Retourne le retour d'intérêt existant de l'utilisateur pour un drama, s'il existe.
+
+    Args:
+        kdrama_id: Identifiant du K-Drama.
+        db: Session de base de données.
+        current_user: Utilisateur authentifié.
+
+    Returns:
+        Le retour d'intérêt existant, ou None.
+    """
+    return db.query(InteretUtilisateur).filter(
+        InteretUtilisateur.utilisateur_id == current_user.id,
+        InteretUtilisateur.kdrama_id == kdrama_id,
+    ).first()
+
+
+# ---------------------------------------------------------------------------
+# Sentiment Endpoints (Drama Ending Sentiment Analysis)
+# ---------------------------------------------------------------------------
+@app.get(
+    "/api/v1/kdramas/{kdrama_id}/sentiment",
+    response_model=DramaSentimentResponse,
+    summary="Get drama sentiment/ending classification",
+    description="Returns sentiment data and ending type for a specific drama.",
+)
+def get_drama_sentiment(kdrama_id: int, db: Session = Depends(get_db)):
+    """Retourne le sentiment et le type d'ending pour un K-Drama.
+
+    Args:
+        kdrama_id: Identifiant unique du K-Drama.
+        db: Session de base de données.
+
+    Returns:
+        Sentiment data with ending_type (happy/sad/bittersweet/unknown).
+
+    Raises:
+        HTTPException: 404 if drama or sentiment not found.
+    """
+    # Check drama exists
+    kdrama = db.query(Kdrama).filter(Kdrama.id == kdrama_id).first()
+    if not kdrama:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"K-Drama with ID {kdrama_id} not found",
+        )
+
+    # Try to get sentiment
+    try:
+        sentiment = db.query(DramaSentiment).filter(
+            DramaSentiment.drama_id == kdrama_id
+        ).first()
+
+        if not sentiment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No sentiment data available for drama {kdrama_id}",
+            )
+
+        return sentiment
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error fetching sentiment for kdrama %d: %s", kdrama_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch sentiment data",
+        )
+
+
+@app.get(
+    "/api/v1/sentiments",
+    summary="List all drama sentiments",
+    description="Returns sentiment data for all dramas with optional filtering by ending_type.",
+)
+def list_sentiments(
+    ending_type: Optional[str] = Query(None, description="Filter by ending type: happy, sad, bittersweet, unknown"),
+    skip: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of items to return"),
+    db: Session = Depends(get_db),
+):
+    """Liste les sentiments des dramas avec filtrage optionnel.
+
+    Args:
+        ending_type: Filter by ending type (happy/sad/bittersweet/unknown).
+        skip: Nombre de résultats à ignorer (pagination).
+        limit: Nombre de résultats à retourner (max 500).
+        db: Session de base de données.
+
+    Returns:
+        Liste des sentiments avec métadonnées.
+    """
+    query = db.query(DramaSentiment)
+
+    if ending_type:
+        valid_endings = ["happy", "sad", "bittersweet", "unknown"]
+        if ending_type.lower() not in valid_endings:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid ending_type. Must be one of: {', '.join(valid_endings)}",
+            )
+        query = query.filter(DramaSentiment.ending_type == ending_type.lower())
+
+    total = query.count()
+    sentiments = query.offset(skip).limit(min(limit, 500)).all()
+
+    return {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "data": sentiments,
+    }
 
 
 # ---------------------------------------------------------------------------

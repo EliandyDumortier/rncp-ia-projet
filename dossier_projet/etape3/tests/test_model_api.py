@@ -40,7 +40,13 @@ os.environ.setdefault("JWT_SECRET_KEY", secrets.token_urlsafe(48))
 os.environ.setdefault("ADMIN_PASSWORD", secrets.token_urlsafe(16))
 os.environ.setdefault("USER_PASSWORD", secrets.token_urlsafe(16))
 
-from model_api import app, create_access_token, model_manager  # noqa: E402
+import model_api  # noqa: E402
+from model_api import (  # noqa: E402
+    RecommendRequest,
+    app,
+    create_access_token,
+    model_manager,
+)
 from recommendation_model import (  # noqa: E402
     HybridRecommender,
     RecommendationResult,
@@ -79,6 +85,33 @@ def trained_model() -> HybridRecommender:
             ],
             "genres": [
                 "Romance, Comedy" if i % 2 == 0 else "Thriller, Mystery"
+                for i in range(1, num_dramas + 1)
+            ],
+            "note_moyenne": [7.5 + (i % 5) * 0.3 for i in range(1, num_dramas + 1)],
+            "nb_episodes": [12 if i % 2 == 0 else 16 for i in range(1, num_dramas + 1)],
+            "date_diffusion": [
+                f"20{10 + (i % 10):02d}-01-01" for i in range(1, num_dramas + 1)
+            ],
+            "poster": [
+                f"https://example.com/poster-{i}.jpg" for i in range(1, num_dramas + 1)
+            ],
+            "principal_actors": [
+                (
+                    "Lee Min-ho, Kim Ji-won"
+                    if i % 3 == 0
+                    else "Park Seo-joon, IU" if i % 3 == 1 else "Son Ye-jin, Hyun Bin"
+                )
+                for i in range(1, num_dramas + 1)
+            ],
+            "ending_type": [
+                "happy" if i % 3 != 0 else "bittersweet"
+                for i in range(1, num_dramas + 1)
+            ],
+            "sentiment_score": [
+                0.75 if i % 3 != 0 else 0.15 for i in range(1, num_dramas + 1)
+            ],
+            "viewer_consensus": [
+                "Feel-good romance" if i % 2 == 0 else "Dark mystery thriller"
                 for i in range(1, num_dramas + 1)
             ],
         }
@@ -122,6 +155,12 @@ def admin_token() -> str:
 
 
 @pytest.fixture(scope="session")
+def numeric_auth_token() -> str:
+    """JWT réaliste avec sub numérique provenant du data-api."""
+    return create_access_token(data={"sub": "123", "role": "user"})
+
+
+@pytest.fixture(scope="session")
 def client(trained_model: HybridRecommender) -> TestClient:
     """
     Crée un client de test FastAPI avec le modèle pré-entraîné.
@@ -150,6 +189,12 @@ def auth_headers(auth_token: str) -> dict[str, str]:
 def admin_headers(admin_token: str) -> dict[str, str]:
     """Headers d'authentification avec token JWT admin."""
     return {"Authorization": f"Bearer {admin_token}"}
+
+
+@pytest.fixture
+def numeric_auth_headers(numeric_auth_token: str) -> dict[str, str]:
+    """Headers d'authentification avec sub numérique."""
+    return {"Authorization": f"Bearer {numeric_auth_token}"}
 
 
 # ============================================================
@@ -457,10 +502,12 @@ class TestRecommendEndpoint:
             assert "score" in rec
             assert "genres" in rec
             assert "reason" in rec
+            assert "explanation" in rec
             assert isinstance(rec["drama_id"], int)
             assert isinstance(rec["title"], str)
             assert isinstance(rec["score"], (int, float))
             assert isinstance(rec["genres"], list)
+            assert isinstance(rec["explanation"], str)
 
     def test_recommend_scores_are_sorted(
         self,
@@ -492,6 +539,66 @@ class TestRecommendEndpoint:
         data = response.json()
         assert data["success"] is True
         assert data["count"] > 0
+
+    def test_recommend_accepts_new_optional_fields(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Les nouveaux champs mood/text/genres/actors/happy-ending doivent être pris en charge."""
+        response = client.post(
+            "/recommend",
+            json={
+                "user_id": 1,
+                "top_k": 4,
+                "mood": "feel good",
+                "text": "romantic story with great chemistry",
+                "genres": ["Romance"],
+                "actor_names": ["Son Ye-jin"],
+                "happy_ending_only": True,
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mode"] == "user"
+        assert data["count"] <= 4
+        assert len(data["recommendations"]) <= 4
+        for rec in data["recommendations"]:
+            assert rec["explanation"]
+
+    def test_text_request_without_user_id_stays_discovery_mode(
+        self,
+        client: TestClient,
+        numeric_auth_headers: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Un JWT data-api avec sub numérique doit fonctionner sans DEMO_USERS."""
+        monkeypatch.setattr(
+            model_api,
+            "fetch_user_preferences",
+            lambda *_args, **_kwargs: {
+                "user_id": 123,
+                "favorite_genres": ["Romance"],
+                "favorite_actors": ["Park Seo-joon"],
+                "happy_ending_only": True,
+                "favorite_drama_ids": [2, 4],
+                "interested_drama_ids": [6],
+                "disliked_drama_ids": [3],
+            },
+        )
+
+        response = client.post(
+            "/recommend",
+            json={"top_k": 4, "text": "uplifting romance"},
+            headers=numeric_auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mode"] == "discovery"
+        assert data["count"] <= 4
+        assert len(data["recommendations"]) <= 4
+        assert all(rec["explanation"] for rec in data["recommendations"])
 
     def test_recommend_latency_under_threshold(
         self,
@@ -810,6 +917,49 @@ class TestRecommendationModel:
         results = trained_model.recommend(user_id=1, top_k=3)
         assert len(results) <= 3
 
+    def test_recommend_filters_happy_endings_and_adds_explanations(
+        self, trained_model: HybridRecommender
+    ) -> None:
+        """Le modèle doit pouvoir filtrer happy ending et fournir une explication."""
+        results = trained_model.recommend(
+            top_k=4,
+            text="feel good romance",
+            genres=["Romance"],
+            happy_ending_only=True,
+        )
+        assert len(results) <= 4
+        assert results
+        for result in results:
+            info = trained_model._get_drama_info(result.drama_id)
+            assert info is not None
+            assert info["ending_type"] == "happy"
+            assert result.explanation
+
+    def test_history_matrix_is_not_presented_as_explicit_user_likes(
+        self, trained_model: HybridRecommender
+    ) -> None:
+        """Training interactions must never be presented as explicit user likes."""
+        results = trained_model.recommend(user_id=1, top_k=4, user_preferences={})
+        assert results
+        assert all("Because you liked" not in result.explanation for result in results)
+
+    def test_recommend_request_accepts_new_fields(self) -> None:
+        """RecommendRequest doit accepter les nouveaux champs optionnels."""
+        req = RecommendRequest(
+            top_k=4,
+            mood="cozy",
+            text="family drama",
+            genres=[" Drama ", ""],
+            actor_names=[" IU "],
+            happy_ending_only=True,
+        )
+        assert req.top_k == 4
+        assert req.mood == "cozy"
+        assert req.text == "family drama"
+        assert req.genres == ["Drama"]
+        assert req.actor_names == ["IU"]
+        assert req.happy_ending_only is True
+
     def test_predict_returns_valid_score(
         self, trained_model: HybridRecommender
     ) -> None:
@@ -870,6 +1020,7 @@ class TestRecommendationModel:
             score=8.5,
             genres=["Romance", "Comedy"],
             reason="Test reason",
+            explanation="Test reason",
         )
         d = result.to_dict()
         assert d["drama_id"] == 1
@@ -877,6 +1028,7 @@ class TestRecommendationModel:
         assert d["score"] == 8.5
         assert d["genres"] == ["Romance", "Comedy"]
         assert d["reason"] == "Test reason"
+        assert d["explanation"] == "Test reason"
 
     def test_content_embeddings_not_none(
         self, trained_model: HybridRecommender

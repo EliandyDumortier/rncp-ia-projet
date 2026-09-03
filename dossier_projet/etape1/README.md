@@ -1,354 +1,203 @@
-# Étape 1 — Collecte et préparation des données
+# K-Drama IA — Étape 1 : données et API
 
-**Projet** : Système de recommandation de K-Dramas par intelligence artificielle
-**Étape** : 1 — Collecte et préparation des données
-**Branche Git** : `etape1/collecte-donnees`
-**Compétences RNCP** : C1, C2, C3, C4, C5
+Cette étape constitue la fondation de données du projet RNCP : collecte,
+nettoyage et modélisation de K-Dramas, schéma PostgreSQL, protection des données
+personnelles et API REST FastAPI. L'API est consommée par le modèle de l'étape
+3 et par l'application React de l'étape 4.
 
----
+## Responsabilités et architecture
 
-## Table des matières
-
-1. [Présentation](#présentation)
-2. [Prérequis](#prérequis)
-3. [Installation](#installation)
-4. [Configuration](#configuration)
-5. [Structure du projet](#structure-du-projet)
-6. [Utilisation](#utilisation)
-7. [API REST](#api-rest)
-8. [Tests](#tests)
-9. [Conformité RGPD](#conformité-rgpd)
-
----
-
-## Présentation
-
-Cette étape constitue le socle du projet de recommandation de K-Dramas. Elle couvre :
-
-- **C1** : Collecte de données depuis 3 sources (API REST TMDB, fichier CSV, scraping MyDramaList).
-- **C2** : Requêtes SQL d'extraction (SELECT, JOIN, GROUP BY, agrégations, sous-requêtes, vues).
-- **C3** : Agrégation, nettoyage et normalisation des données hétérogènes.
-- **C4** : Base de données PostgreSQL conforme au RGPD (hachage, consentement, conservation, anonymisation).
-- **C5** : API REST FastAPI avec authentification JWT, pagination et documentation OpenAPI.
-
----
-
-## Prérequis
-
-- **Python** 3.11 ou supérieur
-- **PostgreSQL** 15 ou supérieur
-- **Clé API TMDB** (gratuite) — [Obtenir une clé](https://www.themoviedb.org/settings/api)
-- **Git** (pour cloner le dépôt)
-
----
-
-## Installation
-
-### 1. Cloner le dépôt et se placer sur la branche de l'étape 1
-
-```bash
-git clone <url-du-depot>
-cd projet-kdrama
-git checkout etape1/collecte-donnees
+```text
+TMDB / MyDramaList / sources de sentiments
+                 │
+                 ▼
+collecte et agrégation Python
+                 │
+                 ▼
+PostgreSQL (schéma kdrama, scripts SQL versionnés)
+                 │
+                 ▼
+FastAPI :8000 ──→ étape 3 (modèle) et étape 4 (front-end)
 ```
 
-### 2. Créer et activer un environnement virtuel
+Les éléments principaux sont :
 
-```bash
-# Linux / macOS
-python3 -m venv venv
-source venv/bin/activate
+| Emplacement | Rôle |
+|---|---|
+| `src/data_collector.py` | collecte depuis les sources externes |
+| `src/data_aggregator.py` | nettoyage, normalisation et agrégation |
+| `src/database_schema.sql` | schéma PostgreSQL principal |
+| `src/preferences_favoris_schema.sql` et scripts associés | extensions utilisateurs, préférences, favoris et historique |
+| `src/sql_queries.py` | requêtes d'extraction et de contrôle |
+| `src/api_server.py` | API REST, authentification et droits RGPD |
+| `src/registre_rgpd.md` | registre des traitements et mesures RGPD |
+| `tests/` | tests des collecteurs, de l'agrégateur et de l'API |
 
-# Windows
-python -m venv venv
-venv\Scripts\activate
-```
+## Prérequis et environnement Python
 
-### 3. Installer les dépendances
+Chaque étape possède son propre environnement virtuel. Créez donc celui-ci dans
+`etape1/.venv`; il est exclu du dépôt par `.gitignore`.
 
-```bash
+```powershell
 cd dossier_projet/etape1
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
----
+Sous Linux/macOS : `source .venv/bin/activate`.
 
 ## Configuration
 
-### 1. Créer le fichier `.env`
+Créez localement un fichier `.env` dans `dossier_projet/etape1`. Il ne doit
+jamais être ajouté à Git.
 
-Copiez le fichier `.env.example` et remplissez les valeurs :
+```dotenv
+# Sources externes (nécessaire seulement pour une collecte réelle)
+TMDB_API_KEY=...
 
-```bash
-cp .env.example .env
-```
-
-### 2. Variables d'environnement requises
-
-```env
-# Clé API TMDB (gratuite — https://www.themoviedb.org/settings/api)
-TMDB_API_KEY=votre_cle_api_tmdb
-
-# Base de données PostgreSQL
-DATABASE_URL=postgresql://user:password@localhost:5432/kdrama_db
-
-# Sécurité JWT
-JWT_SECRET=votre_secret_jwt_tres_long_et_aleatoire
-JWT_ALGORITHM=HS256
-JWT_EXPIRATION_MINUTES=60
-
-# Collecte (rate limiting)
-SCRAPE_DELAY_SECONDS=2
+# PostgreSQL
+DATABASE_URL=postgresql+psycopg2://kdrama:mot-de-passe@localhost:5433/kdrama
 
 # API
 API_HOST=0.0.0.0
 API_PORT=8000
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+CORS_ORIGINS=http://localhost:5173,http://localhost:8080
+
+# Sécurité — remplacer impérativement en environnement partagé
+JWT_SECRET=une-valeur-longue-aleatoire
+JWT_EXPIRATION_MINUTES=60
 ```
 
-### 3. Créer la base de données PostgreSQL
+`DATABASE_URL` doit correspondre au driver SQLAlchemy utilisé. Avec le Compose
+racine, l'API utilise l'hôte interne `db:5432`; depuis la machine hôte,
+PostgreSQL est publié sur le port `5433`.
+
+## Base de données et schémas
+
+Hors Docker, créez la base et appliquez les scripts SQL dans l'ordre suivant :
 
 ```bash
-# Connexion à PostgreSQL
-psql -U postgres
-
-# Création de la base et de l'utilisateur
-CREATE DATABASE kdrama_db;
-CREATE USER kdrama_user WITH PASSWORD 'votre_mot_de_passe';
-GRANT ALL PRIVILEGES ON DATABASE kdrama_db TO kdrama_user;
-\q
+psql -U kdrama -d kdrama -f src/database_schema.sql
+psql -U kdrama -d kdrama -f src/preferences_favoris_schema.sql
+psql -U kdrama -d kdrama -f src/actor_preferences_by_name_schema.sql
+psql -U kdrama -d kdrama -f src/genre_preferences_by_name_schema.sql
 ```
 
-### 4. Appliquer le schéma de base de données
+Ces scripts sont montés automatiquement lors de la première initialisation du
+volume PostgreSQL par le `docker-compose.yml` racine. Si le volume existe déjà,
+PostgreSQL ne rejoue pas les scripts d'initialisation : appliquez alors toute
+évolution de schéma explicitement et sauvegardez les données avant intervention.
 
-```bash
-psql -U kdrama_user -d kdrama_db -f src/database_schema.sql
+## Exécution locale
+
+Lancez l'API depuis le dossier de l'étape 1 :
+
+```powershell
+cd dossier_projet/etape1
+.\.venv\Scripts\Activate.ps1
+uvicorn src.api_server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
----
+La documentation interactive est accessible sur `http://localhost:8000/docs`.
+Le point de disponibilité est `http://localhost:8000/health`.
 
-## Structure du projet
+L'API fournit notamment l'inscription, la connexion JWT, le profil, les
+K-Dramas paginés et recherchables, genres, acteurs, notes, favoris, historique,
+préférences et opérations RGPD. Le contrat exact et les schémas de requête sont
+publiés par OpenAPI sur `/docs`; utilisez cette source plutôt que de dupliquer
+les charges utiles dans la documentation.
 
-```
-dossier_projet/etape1/
-├── src/
-│   ├── data_collector.py      # Collecte (API TMDB, CSV, scraping MyDramaList)
-│   ├── sql_queries.py          # Requêtes SQL d'extraction (C2)
-│   ├── data_aggregator.py     # Agrégation, nettoyage, normalisation (C3)
-│   ├── database_schema.sql     # Schéma DDL PostgreSQL conforme RGPD (C4)
-│   ├── api_server.py           # API REST FastAPI avec JWT (C5)
-│   └── registre_rgpd.md        # Registre des traitements RGPD
-├── data/
-│   ├── raw/                    # Données brutes collectées (JSON)
-│   └── clean/                  # Données nettoyées (JSON + CSV)
-├── requirements.txt            # Dépendances Python
-└── README.md                   # Ce fichier
-```
+## Collecte et préparation
 
----
+Les commandes suivantes s'exécutent dans l'environnement de l'étape 1. Elles
+peuvent appeler des sources externes : utilisez une clé TMDB valide et respectez
+leurs conditions d'utilisation et limites de requêtes.
 
-## Utilisation
-
-### 1. Collecte des données (C1)
-
-La collecte récupère les données depuis les trois sources et les sauvegarde au format JSON dans `data/raw/`.
-
-```bash
-# Collecte complète (TMDB + scraping MyDramaList)
+```powershell
 python src/data_collector.py
-
-# Collecte avec un fichier CSV spécifique
-python src/data_collector.py --csv chemin/vers/kdrama_dataset.csv
-
-# Collecte avec pagination limitée (tests rapides)
-python src/data_collector.py --tmdb-pages 5 --scrape-pages 3
-```
-
-**Options disponibles :**
-
-| Option | Description | Défaut |
-|---|---|---|
-| `--csv` | Chemin du fichier CSV à collecter | Aucun |
-| `--tmdb-pages` | Nombre max de pages TMDB (20 résultats/page) | 50 |
-| `--scrape-pages` | Nombre max de pages MyDramaList à scraper | 10 |
-| `--output-dir` | Répertoire de sortie pour les données brutes | `data/raw` |
-
-### 2. Requêtes SQL d'extraction (C2)
-
-Le module `sql_queries.py` exécute les requêtes d'extraction sur la base PostgreSQL.
-
-```bash
-# Démonstration de toutes les requêtes
+python src/data_aggregator.py
 python src/sql_queries.py
 ```
 
-Requêtes disponibles :
-- Liste des K-Dramas (avec pagination)
-- K-Dramas par année de diffusion
-- K-Dramas et leurs genres (JOIN)
-- K-Dramas et leurs acteurs principaux (JOIN)
-- Notes des utilisateurs (JOIN multiple)
-- Statistiques de notes par K-Drama (GROUP BY + AVG)
-- Top des genres (GROUP BY + COUNT)
-- Statistiques par année (GROUP BY + agrégations)
-- K-Dramas au-dessus de la moyenne (sous-requête)
-- Acteurs les plus productifs (HAVING + agrégation)
-- Recherche par titre (ILIKE)
-- Distribution des notes (CASE + GROUP BY)
-
-### 3. Agrégation et nettoyage (C3)
-
-Le pipeline d'agrégation charge les données brutes, les nettoie, les normalise, les fusionne et exporte le résultat.
-
-```bash
-# Exécution du pipeline complet
-python src/data_aggregator.py
-```
-
-Le pipeline effectue :
-1. Chargement des fichiers JSON bruts (`data/raw/`).
-2. Normalisation des schémas (mapping des champs par source).
-3. Nettoyage des chaînes, dates, notes et genres.
-4. Suppression des entrées corrompues et doublons.
-5. Fusion des sources par similarité de titre.
-6. Export vers `data/clean/` (JSON + CSV) et base PostgreSQL.
-
-### 4. Démarrage de l'API REST (C5)
-
-```bash
-# Démarrage du serveur de développement
-python src/api_server.py
-
-# Ou avec uvicorn directement
-uvicorn src.api_server:app --reload --host 0.0.0.0 --port 8000
-```
-
-L'API est accessible aux adresses suivantes :
-- **API** : http://localhost:8000
-- **Documentation Swagger** : http://localhost:8000/docs
-- **Documentation ReDoc** : http://localhost:8000/redoc
-- **Schéma OpenAPI** : http://localhost:8000/openapi.json
-- **Health check** : http://localhost:8000/health
-
----
-
-## API REST
-
-### Authentification
-
-```bash
-# Inscription
-curl -X POST http://localhost:8000/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "pseudonyme": "monpseudo",
-    "email": "user@example.com",
-    "mot_de_passe": "motdepasse123",
-    "consentement_collecte": true,
-    "consentement_marketing": false
-  }'
-
-# Connexion (retourne un token JWT)
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=monpseudo&password=motdepasse123"
-
-# Profil (avec token)
-curl http://localhost:8000/api/v1/auth/me \
-  -H "Authorization: Bearer <votre_token>"
-```
-
-### K-Dramas
-
-```bash
-# Liste paginée
-curl "http://localhost:8000/api/v1/kdramas?page=1&page_size=20"
-
-# Recherche
-curl "http://localhost:8000/api/v1/kdramas?search=crash&page=1"
-
-# Détails d'un K-Drama
-curl http://localhost:8000/api/v1/kdramas/1
-
-# Création (admin)
-curl -X POST http://localhost:8000/api/v1/kdramas \
-  -H "Authorization: Bearer <token_admin>" \
-  -H "Content-Type: application/json" \
-  -d '{"titre": "Nouveau K-Drama", "nb_episodes": 16}'
-```
-
-### Notes
-
-```bash
-# Ajouter une note (authentifié)
-curl -X POST http://localhost:8000/api/v1/kdramas/1/notes \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"note": 9, "commentaire": "Excellent K-Drama !"}'
-```
-
-### Droits RGPD
-
-```bash
-# Portabilité des données (art. 20)
-curl http://localhost:8000/api/v1/auth/me/export \
-  -H "Authorization: Bearer <token>"
-
-# Droit à l'effacement (art. 17)
-curl -X DELETE http://localhost:8000/api/v1/auth/me \
-  -H "Authorization: Bearer <token>"
-```
-
----
+Consultez les options `--help` des scripts avant une collecte complète. Ne
+lancez pas de scraping intensif sans vérifier les limites et la configuration.
 
 ## Tests
 
-### Vérifier que l'API fonctionne
+```powershell
+cd dossier_projet/etape1
+.\.venv\Scripts\Activate.ps1
+pytest tests -v
+```
+
+Les tests couvrent le collecteur, l'agrégateur, l'analyse de sentiments et
+l'API. Ils doivent être exécutés avec une configuration de test isolée : ne
+pointez pas les tests vers une base de production ni vers des identifiants réels.
+
+## Docker — API seule
+
+Depuis `dossier_projet/etape1` :
 
 ```bash
-# Health check
+docker build -f docker/Dockerfile.api -t kdrama-data-api:local .
+docker run --rm -p 8000:8000 \
+  -e DATABASE_URL=postgresql+psycopg2://kdrama:mot-de-passe@host.docker.internal:5433/kdrama \
+  -e JWT_SECRET=change-me \
+  -e CORS_ORIGINS=http://localhost:5173,http://localhost:8080 \
+  kdrama-data-api:local
+```
+
+Vérifiez le démarrage avec :
+
+```bash
 curl http://localhost:8000/health
-
-# Réponse attendue :
-# {"status": "ok", "database": "ok", "version": "1.0.0", "timestamp": "..."}
 ```
 
-### Vérifier la base de données
+L'image est construite en deux étapes sur Python 3.11 et s'exécute sous un
+utilisateur non-root. Les valeurs d'exemple ne sont adaptées qu'au développement
+local.
 
-```bash
-psql -U kdrama_user -d kdrama_db -c "SELECT COUNT(*) FROM kdramas;"
-psql -U kdrama_user -d kdrama_db -c "SELECT COUNT(*) FROM genres;"
-psql -U kdrama_user -d kdrama_db -c "SELECT * FROM v_kdramas_populaires LIMIT 5;"
+## Stack locale complète
+
+Le fichier [`docker-compose.yml`](../../docker-compose.yml), à la racine du
+dépôt, est la méthode recommandée pour intégrer les trois étapes : PostgreSQL,
+l'API de données (E1), l'API de modèle (E3) et le front-end (E4).
+
+```powershell
+# à la racine rncp-ia-projet (première exécution)
+Copy-Item docker.env.example docker.env
+# Renseigner ensuite les quatre variables obligatoires dans docker.env
+docker compose --env-file docker.env up --build
 ```
 
----
+| Service | Adresse hôte |
+|---|---|
+| API de données | `http://localhost:8000` |
+| API de modèle | `http://localhost:8001` |
+| Application web | `http://localhost:8080` |
+| PostgreSQL | `localhost:5433` |
 
-## Conformité RGPD
+Arrêtez sans effacer le volume de données avec
+`docker compose --env-file docker.env down`. Les valeurs locales sensibles sont
+chargées depuis `docker.env`, ignoré par Git; `docker.env.example` documente les
+variables attendues sans contenir de secret.
 
-Le projet implémente les mesures RGPD suivantes :
+## Sécurité, RGPD et traçabilité
 
-| Mesure | Implémentation | Article RGPD |
-|---|---|---|
-| Hachage des emails | SHA-256 via pgcrypto | Art. 32 |
-| Hachage des mots de passe | bcrypt via passlib | Art. 32 |
-| Suivi du consentement | Colonnes `consentement_*` + `date_consentement` | Art. 6.1.a, 7 |
-| Durée de conservation | `purger_comptes_inactifs()` (3 ans) | Art. 5.1.e |
-| Droit à l'effacement | `anonymiser_utilisateur()` + endpoint DELETE | Art. 17 |
-| Portabilité | `exporter_donnees_utilisateur()` + endpoint GET | Art. 20 |
-| Journalisation | Table `journal_acces` | Art. 30 |
-| Row Level Security | Politiques RLS PostgreSQL | Art. 32 |
-| Anonymisation | Vue `v_utilisateurs_anonymises` | Art. 25 |
+- Les mots de passe sont hachés par l'API; ils ne sont pas exposés au front-end.
+- L'authentification utilise des JWT signés, avec une durée configurable.
+- Les contrôles d'autorisation restent côté API.
+- Les routes de portabilité et d'effacement font partie du contrat RGPD.
+- Le registre et les éléments de conformité sont documentés dans
+  [`src/registre_rgpd.md`](src/registre_rgpd.md).
+- Les secrets, `.env`, caches et environnements `.venv` sont exclus du dépôt.
 
-Voir le fichier `src/registre_rgpd.md` pour le registre complet des traitements.
+## Documentation associée
 
----
-
-## Contact
-
-- **Projet** : Système de recommandation de K-Dramas par IA
-- **Étape** : 1 — Collecte et préparation des données
-- **Branche Git** : `etape1/collecte-donnees`
-
----
-
-*Documentation générée dans le cadre du projet RNCP — Étape 1.*
+- `src/database_schema.sql` — modèle de données et contraintes ;
+- `src/sql_queries.py` — requêtes de contrôle/extraction ;
+- `src/api_server.py` — implémentation de l'API ;
+- `tests/` — tests automatisés ;
+- `dossier_rapports/etape1/` — rapport RNCP et preuves à mettre à jour après
+  la validation complète de l'intégration et du déploiement.

@@ -227,6 +227,31 @@ dossier_projet/etape2/src/veille_historique.json
 
 # Project-specific generated artifacts (etape3)
 dossier_projet/etape3/src/model_artifacts/
+dossier_projet/etape3/model_artifacts/
+dossier_projet/etape3/coverage.xml
+dossier_projet/etape3/test-results.xml
 
 # Personal project-specific generated artifacts
 dossier_perso/
+
+# Étape 4 (React/Vite)
+dossier_projet/etape4/node_modules/
+dossier_projet/etape4/dist/
+dossier_projet/etape4/coverage/
+dossier_projet/etape4/.vite/
+dossier_projet/etape4/.cache/
+dossier_projet/etape4/.eslintcache
+
+# Local env / secrets
+/docker.env
+dossier_projet/etape4/.env
+dossier_projet/etape4/.env.local
+dossier_projet/etape4/.env.development.local
+dossier_projet/etape4/.env.test.local
+dossier_projet/etape4/.env.production.local
+
+# Logs
+dossier_projet/etape4/logs/
+
+# Rapports (never commit to git)
+dossier_rapports/
