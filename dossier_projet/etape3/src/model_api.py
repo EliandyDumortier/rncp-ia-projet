@@ -1124,9 +1124,7 @@ async def value_error_handler(request: Request, exc: ValueError):
 @app.exception_handler(RuntimeError)
 async def runtime_error_handler(request: Request, exc: RuntimeError):
     """Gestionnaire global pour les erreurs d'exécution du modèle."""
-    logger.error(
-        "RuntimeError sur %s : %s", request.url.path, safe_exception(exc)
-    )
+    logger.error("RuntimeError sur %s : %s", request.url.path, safe_exception(exc))
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": "Model operation failed. Check the service logs."},
