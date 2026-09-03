@@ -1,3 +1,6 @@
+import os
+import secrets
+
 import pytest
 from pathlib import Path
 import sys
@@ -5,6 +8,9 @@ from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, date
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
+os.environ.setdefault("JWT_SECRET", secrets.token_urlsafe(48))
 
 from fastapi.testclient import TestClient
 from api_server import app, Kdrama, Utilisateur, Note, Genre
@@ -29,7 +35,12 @@ def test_health_check():
 # ---------------------------------------------------------------------------
 def test_list_kdramas_simple():
     """Test simple kdramas listing."""
-    response = client.get("/api/v1/kdramas-simple")
+    with patch("api_server.SessionLocal") as mock_session_class:
+        mock_session = MagicMock()
+        mock_session_class.return_value = mock_session
+        mock_session.query.return_value.limit.return_value.all.return_value = []
+        response = client.get("/api/v1/kdramas-simple")
+
     assert response.status_code == 200
     data = response.json()
     # API returns {items: [...], total: ...}
@@ -53,7 +64,12 @@ def test_get_kdrama_not_found():
 # ---------------------------------------------------------------------------
 def test_list_genres():
     """Test listing all genres."""
-    response = client.get("/api/v1/genres")
+    with patch("api_server.SessionLocal") as mock_session_class:
+        mock_session = MagicMock()
+        mock_session_class.return_value = mock_session
+        mock_session.query.return_value.order_by.return_value.all.return_value = []
+        response = client.get("/api/v1/genres")
+
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -64,7 +80,14 @@ def test_list_genres():
 # ---------------------------------------------------------------------------
 def test_list_acteurs():
     """Test listing all actors."""
-    response = client.get("/api/v1/acteurs")
+    with patch("api_server.SessionLocal") as mock_session_class:
+        mock_session = MagicMock()
+        mock_session_class.return_value = mock_session
+        query = mock_session.query.return_value
+        query.count.return_value = 0
+        query.order_by.return_value.offset.return_value.limit.return_value.all.return_value = []
+        response = client.get("/api/v1/acteurs")
+
     assert response.status_code == 200
 
 

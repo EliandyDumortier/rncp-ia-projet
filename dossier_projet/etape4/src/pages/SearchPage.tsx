@@ -1,7 +1,7 @@
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import type { Drama, Page } from '../types';
-import { fetchDramas, fetchGenres, dramas, allGenres } from '../data';
+import { fetchDramas, fetchGenres, allGenres } from '../data';
 import { DramaCard } from '../components/DramaCard';
 import { DramaDetailModal } from '../components/DramaDetailModal';
 import { GenreMultiSelect } from '../components/GenreMultiSelect';
@@ -67,7 +67,7 @@ export function SearchPage({ nav }: SearchPageProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, selectedGenres, genres]);
+  }, [query, selectedGenres, genres, genreParam]);
 
   // Fetch new page when currentPage changes
   useEffect(() => {
@@ -85,7 +85,7 @@ export function SearchPage({ nav }: SearchPageProps) {
       setLoading(false);
     };
     fetchPage();
-  }, [currentPage, query, selectedGenres, genres]);
+  }, [currentPage, query, selectedGenres, genres, genreParam]);
 
   // No client-side filtering needed - server-side handles genre filtering
   const filtered = results;

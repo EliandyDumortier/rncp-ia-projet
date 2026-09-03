@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import type { User, FlashMessage, FlashType } from './types';
-import { apiClient, dataApi, DataAPIError } from './api';
+import { apiClient, dataApi } from './api';
 
 function extractUserIdFromJWT(token: string): number {
   try {

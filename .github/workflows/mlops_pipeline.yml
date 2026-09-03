@@ -116,9 +116,6 @@ jobs:
 
       - name: Run tests with coverage
         env:
-          JWT_SECRET_KEY: test-secret-key-for-ci
-          ADMIN_PASSWORD: admin123
-          USER_PASSWORD: user123
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
@@ -224,8 +221,6 @@ jobs:
           retention-days: 90
 
       - name: Model regression tests
-        env:
-          JWT_SECRET_KEY: test-secret-key-for-ci
         run: |
           python -c "
           import sys

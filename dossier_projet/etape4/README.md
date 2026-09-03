@@ -134,9 +134,11 @@ Le fichier [`docker-compose.yml`](../../docker-compose.yml), à la racine du
 dépôt, orchestre PostgreSQL, l'API de données (étape 1), l'API de modèle
 (étape 3) et cette application web (étape 4).
 
-```bash
-# À la racine rncp-ia-projet
-docker compose up --build
+```powershell
+# À la racine rncp-ia-projet (première exécution)
+Copy-Item docker.env.example docker.env
+# Renseigner ensuite les quatre variables obligatoires dans docker.env
+docker compose --env-file docker.env up --build
 ```
 
 Services exposés localement :
@@ -150,13 +152,16 @@ Services exposés localement :
 
 Pour arrêter la stack sans supprimer la base persistante :
 
-```bash
-docker compose down
+```powershell
+docker compose --env-file docker.env down
 ```
 
-Avant tout déploiement, définissez des valeurs fortes et distinctes pour
-`DB_PASSWORD` et `JWT_SECRET`. Les valeurs de développement du fichier Compose
-ne sont pas adaptées à un environnement exposé.
+Le fichier `docker.env` contient les valeurs locales de `DB_PASSWORD`,
+`JWT_SECRET`, `USER_PASSWORD` et `ADMIN_PASSWORD`. Il est ignoré
+par Git. Le fichier versionné `docker.env.example` ne contient que les noms des
+variables et des valeurs publiques de développement. Les variables Supabase
+sont optionnelles : sans elles, l'application utilise l'API de données puis le
+catalogue local en dernier recours.
 
 ## CI/CD
 

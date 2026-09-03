@@ -1,4 +1,4 @@
-import type { Drama, CarouselSlide, ApiDrama, GenreResponse } from "./types";
+import type { Drama, CarouselSlide, ApiDrama } from "./types";
 import { dataApi } from "./api";
 import { fetchDramasFromSupabase } from "./supabaseClient";
 
@@ -297,20 +297,7 @@ export async function fetchDramas(
   totalPages: number;
   fallback: boolean;
 }> {
-  // Try Supabase first (real data source)
-  try {
-    const result = await fetchDramasFromSupabase(page, pageSize, search, sortBy, sortOrder);
-    return {
-      items: result.items,
-      total: result.total,
-      totalPages: result.totalPages,
-      fallback: false,
-    };
-  } catch (supabaseError) {
-    console.warn('Supabase fetch failed, trying API:', supabaseError);
-  }
-
-  // Fall back to API
+  // The data API is the canonical source in local Docker and on Render.
   try {
     const result = await dataApi.listDramas(
       page,
@@ -320,8 +307,6 @@ export async function fetchDramas(
       sortOrder,
       genre,
     );
-
-    // Always return API results if successful, even if empty
     return {
       items: result.items.map(apiDramaToDrama),
       total: result.total,
@@ -329,7 +314,20 @@ export async function fetchDramas(
       fallback: false,
     };
   } catch (apiError) {
-    console.warn('API fetch failed, using fallback data:', apiError);
+    console.warn('API fetch failed, trying optional Supabase fallback:', apiError);
+  }
+
+  // Optional public-data fallback, enabled only when both Vite variables exist.
+  try {
+    const result = await fetchDramasFromSupabase(page, pageSize, search, sortBy, sortOrder);
+    return {
+      items: result.items,
+      total: result.total,
+      totalPages: result.totalPages,
+      fallback: false,
+    };
+  } catch (supabaseError) {
+    console.warn('Supabase fallback unavailable, using local data:', supabaseError);
   }
 
   // Final fallback to local hardcoded data
@@ -373,66 +371,6 @@ export async function fetchGenres(): Promise<string[]> {
   } catch {
     return allGenres;
   }
-}
-
-function normalizeGenreToEnglish(genre: string): string {
-  const frenchToEnglish: Record<string, string> = {
-    "action": "Action",
-    "action & adventure": "Action & Adventure",
-    "amitié": "Friendship",
-    "business": "Business",
-    "comédie": "Comedy",
-    "comedie": "Comedy",
-    "comédie romantique": "Romantic Comedy",
-    "comedie romantique": "Romantic Comedy",
-    "crime": "Crime",
-    "drame": "Drama",
-    "espionnage": "Espionage",
-    "famille": "Family",
-    "fantastique": "Fantasy",
-    "historique": "Historical",
-    "horreur": "Horror",
-    "jeunesse": "Youth",
-    "juridique": "Legal",
-    "militaire": "Military",
-    "musique": "Music",
-    "mystère": "Mystery",
-    "mystere": "Mystery",
-    "médical": "Medical",
-    "medical": "Medical",
-    "mélodrame": "Melodrama",
-    "melodrame": "Melodrama",
-    "politique": "Political",
-    "psychologique": "Psychological",
-    "romance": "Romance",
-    "science-fiction": "Science Fiction",
-    "science fiction": "Science Fiction",
-    "sport": "Sport",
-    "surnaturel": "Supernatural",
-    "thriller": "Thriller",
-    "tranche de vie": "Slice of Life",
-    "vampire": "Vampire",
-    "voyage dans le temps": "Time Travel",
-    "zombie": "Zombie",
-    "école": "School",
-    "ecole": "School",
-    "life": "Life",
-    "family": "Family",
-    "drama": "Drama",
-    "mystery": "Mystery",
-    "romance": "Romance",
-    "sci-fi & fantasy": "Sci-Fi & Fantasy",
-    "soap": "Soap",
-    "thriller": "Thriller",
-    "war & politics": "War & Politics",
-    "youth": "Youth",
-  };
-
-  const key = genre
-    .toLowerCase()
-    .trim();
-
-  return frenchToEnglish[key] || genre;
 }
 
 export async function fetchDramaByTitle(title: string): Promise<Drama | null> {

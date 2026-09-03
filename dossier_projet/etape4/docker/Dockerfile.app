@@ -27,8 +27,12 @@ WORKDIR /build
 # Arguments de build pour les URLs des APIs
 ARG VITE_API_DATA_URL=http://localhost:8000
 ARG VITE_API_IA_URL=http://localhost:8001
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
 ENV VITE_API_DATA_URL=${VITE_API_DATA_URL}
 ENV VITE_API_IA_URL=${VITE_API_IA_URL}
+ENV VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+ENV VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}
 
 # Copie des fichiers de dépendances (optimisation du cache Docker)
 COPY package.json package-lock.json* ./

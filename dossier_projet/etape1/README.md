@@ -164,9 +164,11 @@ Le fichier [`docker-compose.yml`](../../docker-compose.yml), à la racine du
 dépôt, est la méthode recommandée pour intégrer les trois étapes : PostgreSQL,
 l'API de données (E1), l'API de modèle (E3) et le front-end (E4).
 
-```bash
-# à la racine rncp-ia-projet
-docker compose up --build
+```powershell
+# à la racine rncp-ia-projet (première exécution)
+Copy-Item docker.env.example docker.env
+# Renseigner ensuite les quatre variables obligatoires dans docker.env
+docker compose --env-file docker.env up --build
 ```
 
 | Service | Adresse hôte |
@@ -176,9 +178,10 @@ docker compose up --build
 | Application web | `http://localhost:8080` |
 | PostgreSQL | `localhost:5433` |
 
-Arrêtez sans effacer le volume de données avec `docker compose down`. Définissez
-des valeurs fortes pour `DB_PASSWORD` et `JWT_SECRET` avant tout environnement
-partagé ou exposé.
+Arrêtez sans effacer le volume de données avec
+`docker compose --env-file docker.env down`. Les valeurs locales sensibles sont
+chargées depuis `docker.env`, ignoré par Git; `docker.env.example` documente les
+variables attendues sans contenir de secret.
 
 ## Sécurité, RGPD et traçabilité
 

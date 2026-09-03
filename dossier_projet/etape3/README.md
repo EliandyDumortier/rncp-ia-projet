@@ -114,10 +114,7 @@ Depuis `dossier_projet/etape3` :
 
 ```bash
 docker build -f docker/Dockerfile.model -t kdrama-recommender-api:local .
-docker run --rm -p 8001:8001 \
-  -e JWT_SECRET_KEY=test-secret \
-  -e ADMIN_PASSWORD=admin123 \
-  -e USER_PASSWORD=user123 \
+docker run --rm -p 8001:8001 --env-file ../../docker.env \
   -e USE_LOCAL_DATA_SNAPSHOT=true \
   -e FALLBACK_TO_LOCAL_ON_DB_ERROR=true \
   kdrama-recommender-api:local
@@ -139,14 +136,16 @@ Le fichier [`docker-compose.yml`](../../docker-compose.yml) à la racine
 orchestre PostgreSQL, l'API de données, cette API de modèle et l'application
 web :
 
-```bash
-# à la racine du dépôt
-docker compose up --build
+```powershell
+# à la racine du dépôt (première exécution)
+Copy-Item docker.env.example docker.env
+# Renseigner ensuite les quatre variables obligatoires dans docker.env
+docker compose --env-file docker.env up --build
 ```
 
 Les services sont alors exposés sur les ports 8000 (data API), 8001 (model
-API), 8080 (web) et 5433 (PostgreSQL depuis l'hôte). Définissez `DB_PASSWORD`
-et `JWT_SECRET` avant toute utilisation hors développement.
+API), 8080 (web) et 5433 (PostgreSQL depuis l'hôte). Les secrets locaux sont
+centralisés dans `docker.env`, qui reste hors du dépôt.
 
 ## Pipeline MLOps
 

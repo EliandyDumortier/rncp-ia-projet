@@ -77,9 +77,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("api_server")
 
+
+def _required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
 # Variables de configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/kdrama_db")
-JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+DATABASE_URL = _required_env("DATABASE_URL")
+JWT_SECRET = _required_env("JWT_SECRET")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION_MINUTES = int(os.getenv("JWT_EXPIRATION_MINUTES", "60"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")

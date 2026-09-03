@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { dramas, allGenres, truncateChars, formatRating, stars } from './data';
+import { fetchDramasFromSupabase } from './supabaseClient';
+
+describe('Optional Supabase fallback', () => {
+  it('is disabled when its public Vite configuration is absent', async () => {
+    await expect(fetchDramasFromSupabase()).rejects.toThrow(
+      'Supabase browser fallback is not configured.',
+    );
+  });
+});
 
 describe('Data module', () => {
   it('has a non-empty drama catalogue', () => {
