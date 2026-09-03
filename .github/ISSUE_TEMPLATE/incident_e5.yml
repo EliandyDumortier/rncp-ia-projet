@@ -1,0 +1,45 @@
+name: Incident technique E5
+description: Suivre la reproduction, la résolution et les preuves d'un incident applicatif.
+title: "[Incident] "
+labels:
+  - incident
+body:
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptôme et impact
+      description: Décrire le comportement observé sans donnée personnelle ni secret.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Métriques et journaux utiles
+      description: Citer les indicateurs et horaires, sans copier de jeton ou chaîne de connexion.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction en développement
+    validations:
+      required: true
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: Cause racine
+    validations:
+      required: true
+  - type: textarea
+    id: resolution
+    attributes:
+      label: Résolution et tests de non-régression
+    validations:
+      required: true
+  - type: input
+    id: pull-request
+    attributes:
+      label: Pull request de résolution
+      placeholder: "#123"
+    validations:
+      required: true

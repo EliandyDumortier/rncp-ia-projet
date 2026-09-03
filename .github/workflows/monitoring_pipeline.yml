@@ -1,0 +1,81 @@
+name: E5 Monitoring Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - etape5/monitoring-app
+      - develop
+      - main
+    paths:
+      - "dossier_projet/etape5/**"
+      - "dossier_projet/etape3/src/data_loader.py"
+      - "dossier_projet/etape3/src/model_api.py"
+      - "dossier_projet/etape3/src/security_utils.py"
+      - "dossier_projet/etape3/tests/**"
+      - ".github/workflows/monitoring_pipeline.yml"
+  pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - "dossier_projet/etape5/**"
+      - "dossier_projet/etape3/**"
+      - ".github/workflows/monitoring_pipeline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-monitoring:
+    name: Tests and monitoring configuration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dossier_projet/etape5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: dossier_projet/etape5/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Unit tests with coverage
+        run: pytest tests -q --cov=src --cov-report=term-missing --cov-fail-under=85
+
+      - name: Static analysis
+        run: ruff check src tests scripts
+
+      - name: Validate Docker Compose
+        run: docker compose -f docker-compose.monitoring.yml config --quiet
+
+      - name: Validate Prometheus rules
+        run: >-
+          docker run --rm --entrypoint /bin/promtool
+          -v "$PWD/config/prometheus:/etc/prometheus:ro"
+          prom/prometheus:v2.54.1
+          check config /etc/prometheus/prometheus.yml
+
+      - name: Validate Alertmanager routing
+        run: >-
+          docker run --rm --entrypoint /bin/amtool
+          -v "$PWD/config/alertmanager:/etc/alertmanager:ro"
+          prom/alertmanager:v0.27.0
+          check-config /etc/alertmanager/alertmanager.yml
+
+      - name: Validate Grafana dashboard JSON
+        run: >-
+          python -c "import json, pathlib;
+          data=json.loads(pathlib.Path('config/grafana/dashboards/kdrama-overview.json').read_text());
+          assert data['uid']=='kdrama-overview' and len(data['panels']) >= 8"
+
+      - name: Build monitoring exporter
+        run: docker compose -f docker-compose.monitoring.yml build monitoring-exporter
