@@ -1,0 +1,89 @@
+groups:
+  - name: kdrama-availability
+    rules:
+      - alert: KDramaServiceDown
+        expr: kdrama_service_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service K-Drama inaccessible"
+          description: "La sonde du service {{ $labels.service }} échoue depuis une minute."
+
+      - alert: KDramaServiceDegraded
+        expr: kdrama_service_up == 1 and kdrama_service_healthy == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service K-Drama dégradé"
+          description: "{{ $labels.service }} répond mais son contrôle fonctionnel est dégradé."
+
+      - alert: KDramaRepeatedProbeFailures
+        expr: kdrama_service_consecutive_failures >= 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Échecs répétés de la sonde"
+          description: "Trois contrôles consécutifs ont échoué pour {{ $labels.service }}."
+
+      - alert: KDramaMonitoringTargetMissing
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Cible Prometheus inaccessible"
+          description: "Prometheus ne collecte plus la cible {{ $labels.job }}."
+
+  - name: kdrama-performance
+    rules:
+      - alert: KDramaServiceHighLatency
+        expr: max_over_time(kdrama_service_probe_latency_seconds[5m]) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latence applicative élevée"
+          description: "La latence de {{ $labels.service }} dépasse deux secondes."
+
+      - alert: KDramaModelApiHighErrorRate
+        expr: >-
+          sum(rate(kdrama_api_errors_total[5m]))
+          / clamp_min(sum(rate(kdrama_api_requests_total[5m])), 1) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Taux d'erreur du modèle supérieur à 5 %"
+          description: "Le taux d'erreur calculé sur cinq minutes dépasse le seuil critique."
+
+  - name: kdrama-model
+    rules:
+      - alert: KDramaModelUnavailable
+        expr: kdrama_observed_model_trained < 1 or kdrama_model_status < 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Modèle de recommandation indisponible"
+          description: "Le modèle n'est pas chargé et entraîné pour servir des prédictions."
+
+      - alert: KDramaPredictionDriftWarning
+        expr: kdrama_model_prediction_drift >= 0.10 and kdrama_model_prediction_drift < 0.25
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dérive modérée des prédictions"
+          description: "Le PSI est supérieur ou égal à 0,10 ; une analyse est requise."
+
+      - alert: KDramaPredictionDriftCritical
+        expr: kdrama_model_prediction_drift >= 0.25
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dérive critique des prédictions"
+          description: "Le PSI dépasse 0,25 ; évaluer les données avant réentraînement."

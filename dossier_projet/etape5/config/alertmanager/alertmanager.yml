@@ -1,0 +1,23 @@
+global:
+  resolve_timeout: 1m
+  smtp_smarthost: mailpit:1025
+  smtp_from: monitoring@kdrama.local
+  smtp_require_tls: false
+
+route:
+  receiver: local-operations
+  group_by:
+    - alertname
+    - service
+  group_wait: 5s
+  group_interval: 30s
+  repeat_interval: 4h
+
+receivers:
+  - name: local-operations
+    email_configs:
+      - to: operations@kdrama.local
+        send_resolved: true
+    webhook_configs:
+      - url: http://monitoring-exporter:9101/alerts/webhook
+        send_resolved: true

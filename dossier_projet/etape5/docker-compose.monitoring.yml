@@ -1,0 +1,104 @@
+name: kdrama-monitoring
+
+services:
+  monitoring-exporter:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.monitoring
+    container_name: kdrama-monitoring-exporter
+    environment:
+      DATA_API_URL: http://host.docker.internal:8000/health
+      MODEL_API_URL: http://host.docker.internal:8001/health
+      WEB_APP_URL: http://host.docker.internal:8080/health
+      PROBE_INTERVAL_SECONDS: "15"
+      PROBE_TIMEOUT_SECONDS: "5"
+      LOG_LEVEL: INFO
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      - "9101:9101"
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: kdrama-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      - "9090:9090"
+    depends_on:
+      monitoring-exporter:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: kdrama-alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    depends_on:
+      monitoring-exporter:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: kdrama-grafana
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  mailpit:
+    image: axllent/mailpit:v1.20.3
+    container_name: kdrama-mailpit
+    ports:
+      - "8025:8025"
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
