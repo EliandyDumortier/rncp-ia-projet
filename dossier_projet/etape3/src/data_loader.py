@@ -19,6 +19,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
+from security_utils import safe_exception
+
 logger = logging.getLogger(__name__)
 
 _THIS_FILE = Path(__file__).resolve()
@@ -395,7 +397,26 @@ def _get_database_url() -> str:
             "Database connection is not configured. "
             "Set SUPABASE_DB_URL or DATABASE_URL in your .env file."
         )
-    return url
+    return _validate_database_url(url)
+
+
+def _validate_database_url(url: str) -> str:
+    """Reject common deployment mistakes before SQLAlchemy sees credentials.
+
+    Render environment values must not include the display quotes sometimes
+    used in ``.env`` examples.  The exception deliberately never echoes the
+    supplied URL because it may contain a database password.
+    """
+
+    normalized = url.strip()
+    if not normalized:
+        raise RuntimeError("Database connection configuration is empty.")
+    if normalized[0] in {"'", '"'} or normalized[-1] in {"'", '"'}:
+        raise RuntimeError(
+            "Database connection configuration is invalid: "
+            "remove wrapping quotes from the environment value."
+        )
+    return normalized
 
 
 def _result_to_frame(result: Any) -> pd.DataFrame:
@@ -412,7 +433,7 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
     )
 
     try:
-        url = db_url or _get_database_url()
+        url = _validate_database_url(db_url) if db_url else _get_database_url()
     except RuntimeError as exc:
         if allow_fallback_on_error:
             logger.warning("DB URL unavailable, fallback snapshot activé: %s", exc)
@@ -586,7 +607,7 @@ def _load_review_snippets(engine_url: str) -> dict[int, str]:
     a query like "island" can match a review mentioning the setting even
     when the synopsis itself doesn't.
     """
-    engine = create_engine(engine_url, pool_pre_ping=True)
+    engine = create_engine(_validate_database_url(engine_url), pool_pre_ping=True)
     try:
         with engine.connect() as conn:
             result = conn.execute(
@@ -676,7 +697,7 @@ def _history_rating(row: pd.Series) -> float:
 
 
 def load_real_interactions_from_etape1(db_url: str | None = None) -> pd.DataFrame:
-    url = db_url or _get_database_url()
+    url = _validate_database_url(db_url) if db_url else _get_database_url()
     engine = create_engine(url, pool_pre_ping=True)
 
     queries = {
@@ -835,10 +856,12 @@ def fetch_user_preferences(user_id: int, db_url: str | None = None) -> dict[str,
         return preferences
 
     try:
-        url = db_url or _get_database_url()
+        url = _validate_database_url(db_url) if db_url else _get_database_url()
     except RuntimeError as exc:
         logger.warning(
-            "Impossible de charger les préférences utilisateur %s: %s", user_id, exc
+            "Impossible de charger les préférences utilisateur %s: %s",
+            user_id,
+            safe_exception(exc),
         )
         return preferences
 

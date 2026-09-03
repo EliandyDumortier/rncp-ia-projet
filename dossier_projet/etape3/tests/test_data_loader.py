@@ -86,6 +86,30 @@ def test_get_database_url_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -
         data_loader._get_database_url()
 
 
+def test_get_database_url_rejects_render_value_with_quotes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "not-a-real-password"
+    monkeypatch.delenv("SUPABASE_DB_URL", raising=False)
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        f"'postgresql://kdrama:{secret}@database.example/kdrama'",
+    )
+
+    with pytest.raises(RuntimeError) as captured:
+        data_loader._get_database_url()
+
+    assert "remove wrapping quotes" in str(captured.value)
+    assert secret not in str(captured.value)
+
+
+def test_validate_database_url_trims_unquoted_whitespace() -> None:
+    assert (
+        data_loader._validate_database_url("  postgresql://host/database  ")
+        == "postgresql://host/database"
+    )
+
+
 def test_load_dramas_from_etape1_success(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = [
         (
