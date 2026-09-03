@@ -5,7 +5,7 @@ veille_rss.py — Agrégateur RSS pour la veille technique et réglementaire.
 
 Ce script automatise la collecte, le filtrage et la synthèse d'articles
 publiés sur des flux RSS liés à l'intelligence artificielle, à la
-réglementation (RGPD, AI Act, PIPA) et aux technologies de recommandation.
+réglementation (RGPD, AI Act) et aux technologies de recommandation.
 
 Fonctionnalités :
   - Lecture multi-sources (flux RSS prédéfinis par catégorie).
@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,8 +59,9 @@ BASE_DIR: Path = Path(__file__).resolve().parent
 # Fichier d'historique (pour la déduplication et le suivi longitudinal).
 HISTORIQUE_FILE: Path = BASE_DIR / "veille_historique.json"
 
-# Fichier de rapport généré (Markdown).
-RAPPORT_FILE: Path = BASE_DIR / "rapport_veille.md"
+# Collecte brute générée. Elle reste séparée du bulletin vérifié afin qu'une
+# exécution automatique ne remplace jamais une synthèse relue par un humain.
+RAPPORT_FILE: Path = BASE_DIR / "collecte_veille_rss.md"
 
 # Nombre maximum d'articles à afficher par catégorie dans le rapport.
 MAX_ARTICLES_PAR_CATEGORIE: int = 20
@@ -83,7 +85,6 @@ MOTS_CLES: List[str] = [
     "gdpr",
     "ai act",
     "pia",
-    "pipa",
     "cnil",
     "privacy",
     "vie privée",
@@ -201,12 +202,14 @@ def _normaliser_texte(texte: str) -> str:
         return ""
     # Suppression des balises HTML éventuelles
     texte_sans_html = re.sub(r"<[^>]+>", "", texte)
-    # Suppression des accents
-    texte_sans_accents = texte_sans_html.translate(str.maketrans(
-        "àâäéèêëîïôöùûüç",
-        "aaaeeeeiioouuuc",
-    ))
-    return texte_sans_accents.lower()
+    # Décomposition Unicode puis suppression des signes diacritiques.
+    texte_decompose = unicodedata.normalize("NFKD", texte_sans_html)
+    texte_sans_accents = "".join(
+        caractere
+        for caractere in texte_decompose
+        if not unicodedata.combining(caractere)
+    )
+    return re.sub(r"\s+", " ", texte_sans_accents).strip().lower()
 
 
 def _contient_mot_cle(texte: str, mots_cles: List[str]) -> bool:
@@ -223,7 +226,11 @@ def _contient_mot_cle(texte: str, mots_cles: List[str]) -> bool:
     """
     texte_normalise = _normaliser_texte(texte)
     for mot in mots_cles:
-        if _normaliser_texte(mot) in texte_normalise:
+        mot_normalise = _normaliser_texte(mot)
+        # Les limites évitent que les mots courts « ai » et « ia » fassent
+        # correspondre « CIA », « detail » ou d'autres sous-chaînes.
+        motif = rf"(?<!\w){re.escape(mot_normalise)}(?!\w)"
+        if re.search(motif, texte_normalise):
             return True
     return False
 
