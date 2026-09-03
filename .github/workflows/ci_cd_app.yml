@@ -16,6 +16,7 @@
 name: CI/CD — Application Web React K-Drama IA
 
 on:
+  workflow_dispatch:
   push:
     branches: [etape4/integration-app, develop, main]
     paths:
@@ -23,9 +24,6 @@ on:
       - 'dossier_projet/etape4/**'
   pull_request:
     branches: [develop, main]
-    paths:
-      - '.github/workflows/ci_cd_app.yml'
-      - 'dossier_projet/etape4/**'
 
 permissions:
   contents: read

@@ -302,13 +302,16 @@ def _load_dramas_from_snapshot(snapshot_path: Path | None = None) -> pd.DataFram
 
     raw_df = pd.read_json(path) if path.suffix.lower() == ".json" else pd.read_csv(path)
 
+    if "id" in raw_df.columns:
+        raw_drama_ids = raw_df["id"]
+    elif "drama_id" in raw_df.columns:
+        raw_drama_ids = raw_df["drama_id"]
+    else:
+        raw_drama_ids = pd.Series(0, index=raw_df.index, dtype=int)
+
     dramas_df = pd.DataFrame(
         {
-            "drama_id": (
-                pd.to_numeric(raw_df.get("id", pd.Series(dtype=float)), errors="coerce")
-                .fillna(0)
-                .astype(int)
-            ),
+            "drama_id": pd.to_numeric(raw_drama_ids, errors="coerce").fillna(0),
             "title": raw_df.get("titre", raw_df.get("title", "")),
             "synopsis": raw_df.get("synopsis", ""),
             "genres": raw_df.get("genres", ""),
@@ -356,20 +359,32 @@ def _load_dramas_from_snapshot(snapshot_path: Path | None = None) -> pd.DataFram
         logger.warning("Local snapshot is empty after cleaning: %s", path)
         return _load_embedded_catalog()
 
-    if (dramas_df["drama_id"] <= 0).all():
+    invalid_id_mask = (dramas_df["drama_id"] <= 0) | dramas_df["drama_id"].duplicated(
+        keep="first"
+    )
+    if invalid_id_mask.all():
         dramas_df["drama_id"] = list(range(1, len(dramas_df) + 1))
-    else:
-        zero_mask = dramas_df["drama_id"] <= 0
-        if zero_mask.any():
-            replacement_ids = range(1, zero_mask.sum() + 1)
-            dramas_df.loc[zero_mask, "drama_id"] = list(replacement_ids)
+    elif invalid_id_mask.any():
+        used_ids = {
+            int(drama_id)
+            for drama_id in dramas_df.loc[~invalid_id_mask, "drama_id"].tolist()
+        }
+        next_id = 1
+        for index in dramas_df.index[invalid_id_mask]:
+            while next_id in used_ids:
+                next_id += 1
+            dramas_df.at[index, "drama_id"] = next_id
+            used_ids.add(next_id)
+    dramas_df["drama_id"] = dramas_df["drama_id"].astype(int)
 
     dramas_df["synopsis"] = dramas_df["synopsis"].fillna("")
     dramas_df["genres"] = dramas_df["genres"].fillna("")
     dramas_df["principal_actors"] = dramas_df["principal_actors"].fillna("")
     dramas_df["ending_type"] = dramas_df["ending_type"].fillna("unknown")
 
-    logger.info("Catalogue chargé depuis snapshot local: %s (%d K-Dramas)", path, len(dramas_df))
+    logger.info(
+        "Catalogue chargé depuis snapshot local: %s (%d K-Dramas)", path, len(dramas_df)
+    )
     return dramas_df
 
 
@@ -494,8 +509,12 @@ def load_dramas_from_etape1(db_url: str | None = None) -> pd.DataFrame:
         ].apply(_extract_principal_actors_from_json)
 
     try:
-        review_snippets = _load_review_snippets(engine_url=db_url or _get_database_url())
-        dramas_df["review_snippet"] = dramas_df["drama_id"].map(review_snippets).fillna("")
+        review_snippets = _load_review_snippets(
+            engine_url=db_url or _get_database_url()
+        )
+        dramas_df["review_snippet"] = (
+            dramas_df["drama_id"].map(review_snippets).fillna("")
+        )
     except Exception as exc:
         logger.warning("Impossible de charger les extraits de drama_reviews : %s", exc)
         dramas_df["review_snippet"] = ""
@@ -711,14 +730,20 @@ def load_real_interactions_from_etape1(db_url: str | None = None) -> pd.DataFram
     if not history_df.empty:
         history = history_df.copy()
         history["rating"] = history.apply(_history_rating, axis=1)
-        history["signal_weight"] = history["statut"].astype(str).str.lower().map(
-            {
-                "termine": 1.1,
-                "en_cours": 0.8,
-                "a_voir": 0.6,
-                "abandonne": 1.1,
-            }
-        ).fillna(0.7)
+        history["signal_weight"] = (
+            history["statut"]
+            .astype(str)
+            .str.lower()
+            .map(
+                {
+                    "termine": 1.1,
+                    "en_cours": 0.8,
+                    "a_voir": 0.6,
+                    "abandonne": 1.1,
+                }
+            )
+            .fillna(0.7)
+        )
         frames.append(history[["user_id", "drama_id", "rating", "signal_weight"]])
 
     if not favorites_df.empty:
@@ -812,7 +837,9 @@ def fetch_user_preferences(user_id: int, db_url: str | None = None) -> dict[str,
     try:
         url = db_url or _get_database_url()
     except RuntimeError as exc:
-        logger.warning("Impossible de charger les préférences utilisateur %s: %s", user_id, exc)
+        logger.warning(
+            "Impossible de charger les préférences utilisateur %s: %s", user_id, exc
+        )
         return preferences
 
     engine = create_engine(url, pool_pre_ping=True)
@@ -895,17 +922,23 @@ def fetch_user_preferences(user_id: int, db_url: str | None = None) -> dict[str,
 
     preferences["favorite_genres"] = [
         genre
-        for genre in genres_df.get("genre_name", pd.Series(dtype=object)).astype(str).tolist()
+        for genre in genres_df.get("genre_name", pd.Series(dtype=object))
+        .astype(str)
+        .tolist()
         if genre and genre.lower() != "nan"
     ]
     preferences["favorite_actors"] = [
         actor
-        for actor in actors_df.get("actor_name", pd.Series(dtype=object)).astype(str).tolist()
+        for actor in actors_df.get("actor_name", pd.Series(dtype=object))
+        .astype(str)
+        .tolist()
         if actor and actor.lower() != "nan"
     ]
     preferences["favorite_drama_ids"] = [
         int(drama_id)
-        for drama_id in favorites_df.get("drama_id", pd.Series(dtype=float)).dropna().tolist()
+        for drama_id in favorites_df.get("drama_id", pd.Series(dtype=float))
+        .dropna()
+        .tolist()
     ]
 
     if not interests_df.empty:
@@ -913,11 +946,15 @@ def fetch_user_preferences(user_id: int, db_url: str | None = None) -> dict[str,
         negative = interests_df[~interests_df["interesse"].astype(bool)]
         preferences["interested_drama_ids"] = [
             int(drama_id)
-            for drama_id in positive.get("drama_id", pd.Series(dtype=float)).dropna().tolist()
+            for drama_id in positive.get("drama_id", pd.Series(dtype=float))
+            .dropna()
+            .tolist()
         ]
         preferences["disliked_drama_ids"] = [
             int(drama_id)
-            for drama_id in negative.get("drama_id", pd.Series(dtype=float)).dropna().tolist()
+            for drama_id in negative.get("drama_id", pd.Series(dtype=float))
+            .dropna()
+            .tolist()
         ]
 
     _USER_PREFERENCES_CACHE[user_id] = (now, preferences)

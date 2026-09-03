@@ -227,6 +227,9 @@ dossier_projet/etape2/src/veille_historique.json
 
 # Project-specific generated artifacts (etape3)
 dossier_projet/etape3/src/model_artifacts/
+dossier_projet/etape3/model_artifacts/
+dossier_projet/etape3/coverage.xml
+dossier_projet/etape3/test-results.xml
 
 # Personal project-specific generated artifacts
 dossier_perso/

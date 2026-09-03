@@ -208,7 +208,11 @@ class RecommendRequest(BaseModel):
     def clean_string_lists(cls, values: list[str] | None) -> list[str] | None:
         if values is None:
             return None
-        cleaned = [value.strip() for value in values if isinstance(value, str) and value.strip()]
+        cleaned = [
+            value.strip()
+            for value in values
+            if isinstance(value, str) and value.strip()
+        ]
         return cleaned or None
 
     @field_validator("mood", "text")
@@ -844,9 +848,7 @@ async def recommend(
     effective_mode = (
         "user"
         if effective_user_id is not None
-        else "item"
-        if req.drama_id is not None
-        else "discovery"
+        else "item" if req.drama_id is not None else "discovery"
     )
     has_discovery_context = any(
         [

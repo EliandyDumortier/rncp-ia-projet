@@ -167,7 +167,9 @@ class HybridRecommender:
         self.metrics.num_users = self.interactions_df["user_id"].nunique()
         self.metrics.num_interactions = len(self.interactions_df)
         self.metrics.embedding_dim = (
-            int(self.content_embeddings.shape[1]) if self.content_embeddings is not None else 0
+            int(self.content_embeddings.shape[1])
+            if self.content_embeddings is not None
+            else 0
         )
         self.metrics.last_trained_at = pd.Timestamp.now().isoformat()
         self._is_trained = True
@@ -197,16 +199,22 @@ class HybridRecommender:
             raise ValueError(f"top_k doit être > 0, reçu : {top_k}")
 
         user_preferences = user_preferences or {}
-        resolved_genres = genres if genres is not None else user_preferences.get("favorite_genres")
+        resolved_genres = (
+            genres if genres is not None else user_preferences.get("favorite_genres")
+        )
         resolved_actors = (
-            actor_names if actor_names is not None else user_preferences.get("favorite_actors")
+            actor_names
+            if actor_names is not None
+            else user_preferences.get("favorite_actors")
         )
         resolved_happy = (
             happy_ending_only
             if happy_ending_only is not None
             else user_preferences.get("happy_ending_only", False)
         )
-        query_text = self._build_query_text(mood, text, resolved_genres, resolved_actors, resolved_happy)
+        query_text = self._build_query_text(
+            mood, text, resolved_genres, resolved_actors, resolved_happy
+        )
 
         favorite_seed_ids = self._unique_ints(
             user_preferences.get("favorite_drama_ids", [])
@@ -215,7 +223,9 @@ class HybridRecommender:
             user_preferences.get("interested_drama_ids", [])
         )
         positive_seed_ids = self._unique_ints(favorite_seed_ids + interested_seed_ids)
-        negative_seed_ids = self._unique_ints(user_preferences.get("disliked_drama_ids", []))
+        negative_seed_ids = self._unique_ints(
+            user_preferences.get("disliked_drama_ids", [])
+        )
 
         if user_id is not None and negative_seed_ids:
             logger.info(
@@ -284,12 +294,18 @@ class HybridRecommender:
         scores = scores[scores.index.isin(self.dramas_df["drama_id"].tolist())]
 
         if negative_seed_ids:
-            penalty = self._seed_similarity_scores(negative_seed_ids).reindex(scores.index).fillna(0.0)
+            penalty = (
+                self._seed_similarity_scores(negative_seed_ids)
+                .reindex(scores.index)
+                .fillna(0.0)
+            )
             scores = scores - penalty * 0.35
 
         genre_mask = self._match_mask(scores.index.tolist(), resolved_genres, "genre")
         actor_mask = self._match_mask(scores.index.tolist(), resolved_actors, "actor")
-        query_scores = self._query_similarity_scores(query_text).reindex(scores.index).fillna(0.0)
+        query_scores = (
+            self._query_similarity_scores(query_text).reindex(scores.index).fillna(0.0)
+        )
 
         if not query_scores.empty and query_scores.max() > 0:
             # A free-text/mood request is an explicit, information-rich
@@ -365,7 +381,9 @@ class HybridRecommender:
         if collaborative_score > 0:
             components.append(collaborative_score)
 
-        predicted = self.alpha * content_score + (1 - self.alpha) * np.mean(components[1:])
+        predicted = self.alpha * content_score + (1 - self.alpha) * np.mean(
+            components[1:]
+        )
         return float(np.clip(predicted, 0.0, 10.0))
 
     def save(self, model_dir: Path | str = DEFAULT_MODEL_DIR) -> None:
@@ -422,7 +440,9 @@ class HybridRecommender:
         if missing_drama:
             raise ValueError(f"Colonnes manquantes dans dramas_df : {missing_drama}")
         if missing_interaction:
-            raise ValueError(f"Colonnes manquantes dans interactions_df : {missing_interaction}")
+            raise ValueError(
+                f"Colonnes manquantes dans interactions_df : {missing_interaction}"
+            )
         if not pd.api.types.is_numeric_dtype(interactions_df["rating"]):
             raise ValueError("La colonne 'rating' doit être numérique.")
 
@@ -454,11 +474,15 @@ class HybridRecommender:
 
         if "nb_episodes" not in dramas_df.columns:
             dramas_df["nb_episodes"] = 0
-        dramas_df["nb_episodes"] = pd.to_numeric(
-            dramas_df["nb_episodes"], errors="coerce"
-        ).fillna(0).astype(int)
+        dramas_df["nb_episodes"] = (
+            pd.to_numeric(dramas_df["nb_episodes"], errors="coerce")
+            .fillna(0)
+            .astype(int)
+        )
 
-        dramas_df["drama_id"] = pd.to_numeric(dramas_df["drama_id"], errors="coerce").astype(int)
+        dramas_df["drama_id"] = pd.to_numeric(
+            dramas_df["drama_id"], errors="coerce"
+        ).astype(int)
         dramas_df["title"] = dramas_df["title"].fillna("").astype(str)
         dramas_df["genre_list"] = dramas_df["genres"].apply(self._parse_list)
         dramas_df["actor_list"] = dramas_df["principal_actors"].apply(self._parse_list)
@@ -479,7 +503,11 @@ class HybridRecommender:
     def _load_embedding_model(self) -> None:
         if self._embedding_model is not None:
             return
-        if "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST") or os.getenv("DISABLE_SENTENCE_TRANSFORMERS") == "1":
+        if (
+            "pytest" in sys.modules
+            or os.getenv("PYTEST_CURRENT_TEST")
+            or os.getenv("DISABLE_SENTENCE_TRANSFORMERS") == "1"
+        ):
             self._embedding_model = _TFIDFFallback()
             return
         try:
@@ -487,7 +515,9 @@ class HybridRecommender:
 
             self._embedding_model = SentenceTransformer(self.embedding_model_name)
         except Exception:
-            logger.warning("sentence-transformers indisponible, fallback TF-IDF activé.")
+            logger.warning(
+                "sentence-transformers indisponible, fallback TF-IDF activé."
+            )
             self._embedding_model = _TFIDFFallback()
 
     def _generate_content_embeddings(self) -> None:
@@ -575,9 +605,9 @@ class HybridRecommender:
     def _build_user_item_matrix(self) -> None:
         if self.interactions_df is None:
             raise RuntimeError("interactions_df n'est pas initialisé.")
-        aggregated = (
-            self.interactions_df.groupby(["user_id", "drama_id"], as_index=False)["rating"].mean()
-        )
+        aggregated = self.interactions_df.groupby(
+            ["user_id", "drama_id"], as_index=False
+        )["rating"].mean()
         self.user_item_matrix = aggregated.pivot_table(
             index="user_id",
             columns="drama_id",
@@ -611,11 +641,15 @@ class HybridRecommender:
         if self.user_item_matrix is not None and user_id in self.user_item_matrix.index:
             user_vector = self.user_item_matrix.loc[user_id].values.reshape(1, -1)
             seen_dramas = self.user_item_matrix.loc[user_id]
-            seen_ids = [int(drama_id) for drama_id, rating in seen_dramas.items() if rating > 0]
+            seen_ids = [
+                int(drama_id) for drama_id, rating in seen_dramas.items() if rating > 0
+            ]
             exclude_ids.update(seen_ids)
 
             rated = seen_dramas[seen_dramas > 0].sort_values(ascending=False)
-            liked_ids.extend([int(drama_id) for drama_id in rated.head(5).index.tolist()])
+            liked_ids.extend(
+                [int(drama_id) for drama_id in rated.head(5).index.tolist()]
+            )
 
             collaborative_scores = self._collaborative_scores_for_user_vector(
                 user_vector=user_vector,
@@ -636,7 +670,10 @@ class HybridRecommender:
         else:
             liked_ids.extend(extra_positive_ids)
             if extra_positive_ids:
-                base_scores = 0.7 * self._seed_similarity_scores(extra_positive_ids) + 0.3 * base_scores
+                base_scores = (
+                    0.7 * self._seed_similarity_scores(extra_positive_ids)
+                    + 0.3 * base_scores
+                )
 
         if extra_positive_ids:
             exclude_ids.update(extra_positive_ids)
@@ -654,7 +691,11 @@ class HybridRecommender:
 
         seed_scores = self._seed_similarity_scores([drama_id] + extra_positive_ids)
         co_occurrence = self._co_occurrence_scores(drama_id)
-        base_scores = self.alpha * seed_scores + (1 - self.alpha) * co_occurrence + 0.15 * self._popular_scores()
+        base_scores = (
+            self.alpha * seed_scores
+            + (1 - self.alpha) * co_occurrence
+            + 0.15 * self._popular_scores()
+        )
         exclude_ids = {drama_id, *extra_positive_ids, *extra_negative_ids}
         liked_ids = self._unique_ints([drama_id] + extra_positive_ids)
         return base_scores, exclude_ids, liked_ids
@@ -672,14 +713,18 @@ class HybridRecommender:
         weights = 1.0 - distances[0]
         weights = np.where(weights <= 0, 0.05, weights)
         weighted_scores = np.average(similar_users.values, axis=0, weights=weights)
-        series = pd.Series(weighted_scores, index=self.user_item_matrix.columns, dtype=float)
+        series = pd.Series(
+            weighted_scores, index=self.user_item_matrix.columns, dtype=float
+        )
         series = series.drop(labels=list(exclude_ids), errors="ignore")
         return self._scale_series(series)
 
     def _co_occurrence_scores(self, drama_id: int) -> pd.Series:
         if self.interactions_df is None:
             return self._popular_scores()
-        users = self.interactions_df[self.interactions_df["drama_id"] == drama_id]["user_id"].unique()
+        users = self.interactions_df[self.interactions_df["drama_id"] == drama_id][
+            "user_id"
+        ].unique()
         if len(users) == 0:
             return self._popular_scores()
         related = self.interactions_df[
@@ -689,7 +734,9 @@ class HybridRecommender:
         if related.empty:
             return self._popular_scores()
         scores = related.groupby("drama_id")["rating"].mean()
-        return self._scale_series(scores).reindex(self.dramas_df["drama_id"]).fillna(0.0)
+        return (
+            self._scale_series(scores).reindex(self.dramas_df["drama_id"]).fillna(0.0)
+        )
 
     def _seed_similarity_scores(
         self,
@@ -699,18 +746,28 @@ class HybridRecommender:
         if self.content_embeddings is None or self.dramas_df is None:
             return self._popular_scores()
 
-        valid_seed_ids = [seed_id for seed_id in seed_ids if seed_id in self._drama_id_to_index]
+        valid_seed_ids = [
+            seed_id for seed_id in seed_ids if seed_id in self._drama_id_to_index
+        ]
         if not valid_seed_ids:
             return self._popular_scores()
 
         seed_indices = [self._drama_id_to_index[seed_id] for seed_id in valid_seed_ids]
-        candidate_sims = self.content_embeddings @ self.content_embeddings[seed_indices].T
+        candidate_sims = (
+            self.content_embeddings @ self.content_embeddings[seed_indices].T
+        )
         weights = np.array(
-            seed_weights[: len(valid_seed_ids)] if seed_weights else [1.0] * len(valid_seed_ids),
+            (
+                seed_weights[: len(valid_seed_ids)]
+                if seed_weights
+                else [1.0] * len(valid_seed_ids)
+            ),
             dtype=float,
         )
         weighted_scores = candidate_sims @ weights / np.sum(np.abs(weights))
-        series = pd.Series(weighted_scores, index=self.dramas_df["drama_id"], dtype=float)
+        series = pd.Series(
+            weighted_scores, index=self.dramas_df["drama_id"], dtype=float
+        )
         return self._scale_series(series)
 
     def _popular_scores(self) -> pd.Series:
@@ -720,11 +777,16 @@ class HybridRecommender:
             series = self.interactions_df.groupby("drama_id")["rating"].mean()
         else:
             series = self.dramas_df.set_index("drama_id")["note_moyenne"]
-        return self._scale_series(series).reindex(self.dramas_df["drama_id"]).fillna(0.0)
+        return (
+            self._scale_series(series).reindex(self.dramas_df["drama_id"]).fillna(0.0)
+        )
 
     def _query_similarity_scores(self, query_text: str) -> pd.Series:
         if not query_text or self.content_embeddings is None or self.dramas_df is None:
-            return pd.Series(0.0, index=self.dramas_df["drama_id"] if self.dramas_df is not None else [])
+            return pd.Series(
+                0.0,
+                index=self.dramas_df["drama_id"] if self.dramas_df is not None else [],
+            )
         query_embedding = self._embedding_model.encode(
             [query_text],
             show_progress_bar=False,
@@ -744,13 +806,41 @@ class HybridRecommender:
         # at all (e.g. abstract mood words like "heartwarming").
         keyword_hits = self._keyword_overlap_scores(query_text)
         combined = cosine_scores + keyword_hits * 10.0
-        return self._scale_series(pd.Series(combined, index=self.dramas_df["drama_id"], dtype=float))
+        return self._scale_series(
+            pd.Series(combined, index=self.dramas_df["drama_id"], dtype=float)
+        )
 
     _QUERY_STOPWORDS = {
-        "about", "after", "before", "drama", "dramas", "episode", "episodes",
-        "series", "show", "shows", "story", "stories", "kdrama", "kdramas",
-        "with", "that", "this", "have", "from", "want", "like", "some",
-        "into", "onto", "your", "their", "there", "where", "which", "while",
+        "about",
+        "after",
+        "before",
+        "drama",
+        "dramas",
+        "episode",
+        "episodes",
+        "series",
+        "show",
+        "shows",
+        "story",
+        "stories",
+        "kdrama",
+        "kdramas",
+        "with",
+        "that",
+        "this",
+        "have",
+        "from",
+        "want",
+        "like",
+        "some",
+        "into",
+        "onto",
+        "your",
+        "their",
+        "there",
+        "where",
+        "which",
+        "while",
     }
 
     def _keyword_overlap_scores(self, query_text: str) -> np.ndarray:
@@ -799,7 +889,10 @@ class HybridRecommender:
         if not actor_mask.empty and actor_mask.any():
             aligned_actor_mask = actor_mask.reindex(adjusted.index).fillna(False)
             adjusted.loc[aligned_actor_mask] += 1.2
-            if int(actor_mask.sum()) >= min(top_k, 2) and len(adjusted[aligned_actor_mask]) > 0:
+            if (
+                int(actor_mask.sum()) >= min(top_k, 2)
+                and len(adjusted[aligned_actor_mask]) > 0
+            ):
                 adjusted = adjusted[aligned_actor_mask]
         return adjusted
 
@@ -874,7 +967,9 @@ class HybridRecommender:
             parts.append(f"shares a {cluster_label} vibe")
 
         if not parts:
-            parts.append("Strong overall match based on content and audience preferences")
+            parts.append(
+                "Strong overall match based on content and audience preferences"
+            )
         return ". ".join(parts[:3]) + "."
 
     def _top_similar_seed_titles(self, drama_id: int, seed_ids: list[int]) -> list[str]:
@@ -886,7 +981,12 @@ class HybridRecommender:
             if seed_id == drama_id or seed_id not in self._drama_id_to_index:
                 continue
             seed_idx = self._drama_id_to_index[seed_id]
-            similarity = float(np.dot(self.content_embeddings[target_idx], self.content_embeddings[seed_idx]))
+            similarity = float(
+                np.dot(
+                    self.content_embeddings[target_idx],
+                    self.content_embeddings[seed_idx],
+                )
+            )
             title = self._get_drama_title(seed_id)
             if title:
                 ranked.append((similarity, title))
@@ -911,7 +1011,14 @@ class HybridRecommender:
             if int(seen_id) not in self._drama_id_to_index:
                 continue
             seen_idx = self._drama_id_to_index[int(seen_id)]
-            sims.append(float(np.dot(self.content_embeddings[target_idx], self.content_embeddings[seen_idx])))
+            sims.append(
+                float(
+                    np.dot(
+                        self.content_embeddings[target_idx],
+                        self.content_embeddings[seen_idx],
+                    )
+                )
+            )
             weights.append(float(rating))
         if not sims:
             return float(self._popular_scores().get(drama_id, 5.0))
@@ -922,7 +1029,10 @@ class HybridRecommender:
     def _collaborative_prediction(self, user_id: int, drama_id: int) -> float:
         if self.user_item_matrix is None or self.collaborative_model is None:
             return 0.0
-        if user_id not in self.user_item_matrix.index or drama_id not in self.user_item_matrix.columns:
+        if (
+            user_id not in self.user_item_matrix.index
+            or drama_id not in self.user_item_matrix.columns
+        ):
             return 0.0
 
         user_vector = self.user_item_matrix.loc[user_id].values.reshape(1, -1)
@@ -968,12 +1078,16 @@ class HybridRecommender:
             poster = "https://via.placeholder.com/400x600?text=No+Poster"
 
         cluster_id = self.drama_clusters.get(drama_id)
-        cluster_label = self.cluster_labels.get(cluster_id, "") if cluster_id is not None else ""
+        cluster_label = (
+            self.cluster_labels.get(cluster_id, "") if cluster_id is not None else ""
+        )
 
         return {
             "drama_id": drama_id,
             "title": str(item.get("title", "Unknown")),
-            "genres": list(item.get("genre_list", self._parse_list(item.get("genres", "")))),
+            "genres": list(
+                item.get("genre_list", self._parse_list(item.get("genres", "")))
+            ),
             "synopsis": str(item.get("synopsis", "")),
             "rating": float(item.get("note_moyenne", 0.0) or 0.0),
             "year": year,
@@ -983,7 +1097,9 @@ class HybridRecommender:
             "sentiment_score": float(item.get("sentiment_score", 0.0) or 0.0),
             "viewer_consensus": str(item.get("viewer_consensus", "")),
             "principal_actors": list(
-                item.get("actor_list", self._parse_list(item.get("principal_actors", "")))
+                item.get(
+                    "actor_list", self._parse_list(item.get("principal_actors", ""))
+                )
             ),
             "cluster_label": cluster_label,
         }
@@ -1013,7 +1129,9 @@ class HybridRecommender:
         return " ".join(part for part in parts if part)
 
     def _build_ending_phrase(self, row: pd.Series) -> str:
-        ending_type = str(row.get("ending_type", "unknown") or "unknown").strip().lower()
+        ending_type = (
+            str(row.get("ending_type", "unknown") or "unknown").strip().lower()
+        )
         sentiment_score = float(row.get("sentiment_score", 0.0) or 0.0)
         if ending_type == "happy":
             tone = "uplifting" if sentiment_score >= 0.35 else "gentle"

@@ -185,7 +185,9 @@ def test_load_dramas_from_etape1_raises_on_query_error(
 def test_load_dramas_from_etape1_raises_on_empty_table(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_result = _FakeResult([], ["drama_id", "title", "synopsis", "genres", "note_moyenne"])
+    fake_result = _FakeResult(
+        [], ["drama_id", "title", "synopsis", "genres", "note_moyenne"]
+    )
     fake_engine = _FakeEngine(_FakeConnection(result=fake_result))
     monkeypatch.setattr(
         data_loader, "create_engine", lambda *_args, **_kwargs: fake_engine
@@ -303,6 +305,27 @@ def test_load_dramas_from_snapshot_uses_embedded_when_cleaned_empty(
     assert got is embedded_df
 
 
+def test_load_dramas_from_snapshot_assigns_unique_ids_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_without_ids = pd.DataFrame(
+        {
+            "titre": ["Drama A", "Drama B", "Drama C"],
+            "synopsis": ["a", "b", "c"],
+            "genres": ["Drama", "Comedy", "Action"],
+            "note_moyenne": [8.0, 7.5, 9.0],
+        }
+    )
+    monkeypatch.setattr(
+        data_loader.pd, "read_csv", lambda *_args, **_kwargs: raw_without_ids
+    )
+
+    got = data_loader._load_dramas_from_snapshot(Path(__file__))
+
+    assert got["drama_id"].tolist() == [1, 2, 3]
+    assert got["drama_id"].is_unique
+
+
 def test_generate_interactions_requires_note_moyenne_column() -> None:
     dramas_df = pd.DataFrame({"drama_id": [1, 2], "title": ["A", "B"]})
     with pytest.raises(ValueError, match="note_moyenne"):
@@ -366,9 +389,15 @@ def test_load_real_interactions_aggregates_notes_history_favorites_and_interest(
 
     assert list(got.columns) == ["user_id", "drama_id", "rating"]
     assert len(got) == 3
-    assert got.loc[(got["user_id"] == 1) & (got["drama_id"] == 10), "rating"].iloc[0] == pytest.approx(9.14, rel=1e-2)
-    assert got.loc[(got["user_id"] == 2) & (got["drama_id"] == 20), "rating"].iloc[0] < 2.0
-    assert got.loc[(got["user_id"] == 3) & (got["drama_id"] == 30), "rating"].iloc[0] == pytest.approx(8.8, rel=1e-2)
+    assert got.loc[(got["user_id"] == 1) & (got["drama_id"] == 10), "rating"].iloc[
+        0
+    ] == pytest.approx(9.14, rel=1e-2)
+    assert (
+        got.loc[(got["user_id"] == 2) & (got["drama_id"] == 20), "rating"].iloc[0] < 2.0
+    )
+    assert got.loc[(got["user_id"] == 3) & (got["drama_id"] == 30), "rating"].iloc[
+        0
+    ] == pytest.approx(8.8, rel=1e-2)
     assert fake_engine.disposed is True
 
 
@@ -419,7 +448,15 @@ def test_fetch_user_preferences_returns_expected_payload(
 def test_load_real_data_uses_real_interactions_when_enough(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    dramas_df = pd.DataFrame({"drama_id": [1], "note_moyenne": [8.0], "title": ["A"], "synopsis": [""], "genres": ["Drama"]})
+    dramas_df = pd.DataFrame(
+        {
+            "drama_id": [1],
+            "note_moyenne": [8.0],
+            "title": ["A"],
+            "synopsis": [""],
+            "genres": ["Drama"],
+        }
+    )
     real_interactions = pd.DataFrame(
         {
             "user_id": list(range(1, data_loader.MIN_REAL_INTERACTIONS + 1)),
@@ -428,14 +465,18 @@ def test_load_real_data_uses_real_interactions_when_enough(
         }
     )
 
-    monkeypatch.setattr(data_loader, "load_dramas_from_etape1", lambda *_args, **_kwargs: dramas_df)
+    monkeypatch.setattr(
+        data_loader, "load_dramas_from_etape1", lambda *_args, **_kwargs: dramas_df
+    )
     monkeypatch.setattr(
         data_loader,
         "load_real_interactions_from_etape1",
         lambda *_args, **_kwargs: real_interactions,
     )
 
-    got_dramas, got_interactions = data_loader.load_real_data(db_url="postgresql://fake")
+    got_dramas, got_interactions = data_loader.load_real_data(
+        db_url="postgresql://fake"
+    )
     assert got_dramas is dramas_df
     assert got_interactions is real_interactions
 
@@ -457,7 +498,9 @@ def test_load_real_data_falls_back_to_synthetic_when_real_insufficient(
         {"user_id": [-1, -2], "drama_id": [1, 2], "rating": [8.0, 7.5]}
     )
 
-    monkeypatch.setattr(data_loader, "load_dramas_from_etape1", lambda *_args, **_kwargs: dramas_df)
+    monkeypatch.setattr(
+        data_loader, "load_dramas_from_etape1", lambda *_args, **_kwargs: dramas_df
+    )
     monkeypatch.setattr(
         data_loader,
         "load_real_interactions_from_etape1",
@@ -491,7 +534,9 @@ def test_load_real_data_orchestration_falls_back_on_interaction_error(
     )
     called: dict[str, object] = {}
 
-    monkeypatch.setattr(data_loader, "load_dramas_from_etape1", lambda db_url=None: dramas_df)
+    monkeypatch.setattr(
+        data_loader, "load_dramas_from_etape1", lambda db_url=None: dramas_df
+    )
 
     def _raise(*_args, **_kwargs):  # type: ignore[no-untyped-def]
         raise RuntimeError("db down")
@@ -511,7 +556,9 @@ def test_load_real_data_orchestration_falls_back_on_interaction_error(
         return synthetic_interactions
 
     monkeypatch.setattr(data_loader, "load_real_interactions_from_etape1", _raise)
-    monkeypatch.setattr(data_loader, "generate_interactions_from_catalog", _fake_generate)
+    monkeypatch.setattr(
+        data_loader, "generate_interactions_from_catalog", _fake_generate
+    )
 
     got_dramas, got_interactions = data_loader.load_real_data(
         db_url="postgresql://fake",

@@ -41,7 +41,12 @@ os.environ.setdefault("ADMIN_PASSWORD", secrets.token_urlsafe(16))
 os.environ.setdefault("USER_PASSWORD", secrets.token_urlsafe(16))
 
 import model_api  # noqa: E402
-from model_api import RecommendRequest, app, create_access_token, model_manager  # noqa: E402
+from model_api import (  # noqa: E402
+    RecommendRequest,
+    app,
+    create_access_token,
+    model_manager,
+)
 from recommendation_model import (  # noqa: E402
     HybridRecommender,
     RecommendationResult,
@@ -87,13 +92,15 @@ def trained_model() -> HybridRecommender:
             "date_diffusion": [
                 f"20{10 + (i % 10):02d}-01-01" for i in range(1, num_dramas + 1)
             ],
-            "poster": [f"https://example.com/poster-{i}.jpg" for i in range(1, num_dramas + 1)],
+            "poster": [
+                f"https://example.com/poster-{i}.jpg" for i in range(1, num_dramas + 1)
+            ],
             "principal_actors": [
-                "Lee Min-ho, Kim Ji-won"
-                if i % 3 == 0
-                else "Park Seo-joon, IU"
-                if i % 3 == 1
-                else "Son Ye-jin, Hyun Bin"
+                (
+                    "Lee Min-ho, Kim Ji-won"
+                    if i % 3 == 0
+                    else "Park Seo-joon, IU" if i % 3 == 1 else "Son Ye-jin, Hyun Bin"
+                )
                 for i in range(1, num_dramas + 1)
             ],
             "ending_type": [

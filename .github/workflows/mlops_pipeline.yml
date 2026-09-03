@@ -23,21 +23,20 @@
 name: MLOps Pipeline — K-Drama Recommender
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - etape3/mlops-modele
       - develop
       - main
+      - etape4/integration-app
     paths:
       - 'dossier_projet/etape3/**'
       - '.github/workflows/mlops_pipeline.yml'
   pull_request:
     branches:
-      - etape3/mlops-modele
       - develop
       - main
-    paths:
-      - 'dossier_projet/etape3/**'
 
 env:
   PYTHON_VERSION: '3.11'
@@ -184,7 +183,9 @@ jobs:
       - name: Train recommendation model
         env:
           MODEL_OUTPUT_DIR: model_artifacts
-          USE_LOCAL_DATA_SNAPSHOT: "true"
+          # Prefer the same Supabase source as Render when the secret exists.
+          # PRs without secrets remain deterministic through the local fallback.
+          USE_LOCAL_DATA_SNAPSHOT: "false"
           FALLBACK_TO_LOCAL_ON_DB_ERROR: "true"
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -196,7 +197,7 @@ jobs:
           from recommendation_model import HybridRecommender, load_real_data
           import json
 
-          print('=== Model training (CI) — snapshot fallback enabled ===')
+          print('=== Model training (CI) — database with snapshot fallback ===')
           dramas_df, interactions_df = load_real_data(num_users=50)
           model = HybridRecommender(alpha=0.6)
           metrics = model.train(dramas_df, interactions_df)
