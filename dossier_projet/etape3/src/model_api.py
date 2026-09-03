@@ -29,7 +29,7 @@ from typing import Any
 
 import jwt
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -47,6 +47,7 @@ from recommendation_model import (
     RecommendationResult,
     load_real_data,
 )
+from security_utils import safe_exception
 
 # ============================================================
 # Configuration du logging
@@ -347,12 +348,15 @@ class ModelManager:
                 )
                 self._train_demo_model()
         except Exception as e:
-            logger.error("Erreur lors du chargement du modèle : %s", e)
+            logger.error("Erreur lors du chargement du modèle : %s", safe_exception(e))
             # Fallback : entraînement d'un modèle de démo
             try:
                 self._train_demo_model()
             except Exception as train_err:
-                logger.error("Échec de l'entraînement de fallback : %s", train_err)
+                logger.error(
+                    "Échec de l'entraînement de fallback : %s",
+                    safe_exception(train_err),
+                )
                 raise
 
         # Mise à jour du monitoring
@@ -394,10 +398,10 @@ class ModelManager:
         if self.model is None:
             try:
                 self.load_or_train()
-            except Exception as e:
+            except Exception:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=f"Model unavailable: {e}",
+                    detail="Model unavailable. Check the service health and logs.",
                 )
         assert self.model is not None
         return self.model
@@ -641,7 +645,12 @@ async def monitoring_middleware(request: Request, call_next):
             status=500,
             latency=latency,
         )
-        logger.error("Erreur non gérée sur %s %s : %s", method, endpoint, e)
+        logger.error(
+            "Erreur non gérée sur %s %s : %s",
+            method,
+            endpoint,
+            safe_exception(e),
+        )
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error."},
@@ -683,7 +692,7 @@ async def monitoring_middleware(request: Request, call_next):
 
 @app.get("/health", response_model=HealthResponse, tags=["Monitoring"])
 @limiter.limit(API_RATE_LIMIT)
-async def health_check(request: Request) -> HealthResponse:
+async def health_check(request: Request, response: Response) -> HealthResponse:
     """
     Vérifie la santé de l'API et du modèle.
 
@@ -694,6 +703,8 @@ async def health_check(request: Request) -> HealthResponse:
     model_trained = model_manager.model is not None and model_manager.model._is_trained
 
     status_str = "healthy" if model_trained else "degraded"
+    if not model_trained:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
     return HealthResponse(
         status=status_str,
@@ -898,7 +909,7 @@ async def recommend(
             detail=str(e),
         )
     except Exception as e:
-        logger.error("Erreur lors de l'inférence : %s", e)
+        logger.error("Erreur lors de l'inférence : %s", safe_exception(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error generating recommendations.",
@@ -987,7 +998,7 @@ async def predict(
             detail=str(e),
         )
     except Exception as e:
-        logger.error("Erreur lors de la prédiction : %s", e)
+        logger.error("Erreur lors de la prédiction : %s", safe_exception(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error during prediction.",
@@ -1113,10 +1124,10 @@ async def value_error_handler(request: Request, exc: ValueError):
 @app.exception_handler(RuntimeError)
 async def runtime_error_handler(request: Request, exc: RuntimeError):
     """Gestionnaire global pour les erreurs d'exécution du modèle."""
-    logger.error("RuntimeError sur %s : %s", request.url.path, exc)
+    logger.error("RuntimeError sur %s : %s", request.url.path, safe_exception(exc))
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        content={"detail": f"Model error: {exc}"},
+        content={"detail": "Model operation failed. Check the service logs."},
     )
 
 

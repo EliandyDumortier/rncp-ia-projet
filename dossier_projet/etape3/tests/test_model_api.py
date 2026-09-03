@@ -210,6 +210,16 @@ class TestHealthEndpoint:
         response = client.get("/health")
         assert response.status_code == 200
 
+    def test_health_returns_503_when_model_is_unavailable(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Readiness must fail instead of hiding a degraded model behind HTTP 200."""
+
+        monkeypatch.setattr(model_manager, "model", None)
+        response = client.get("/health")
+        assert response.status_code == 503
+        assert response.json()["status"] == "degraded"
+
     def test_health_response_format(self, client: TestClient) -> None:
         """La réponse /health doit contenir tous les champs attendus."""
         response = client.get("/health")

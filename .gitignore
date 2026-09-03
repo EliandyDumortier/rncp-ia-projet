@@ -253,5 +253,8 @@ dossier_projet/etape4/.env.production.local
 # Logs
 dossier_projet/etape4/logs/
 
+# Etape 5 - local validation evidence (generated, personal workspace only)
+dossier_projet/etape5/.validation/
+
 # Rapports (never commit to git)
 dossier_rapports/
