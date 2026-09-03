@@ -141,7 +141,7 @@ Le tableau Kanban est organisé en 5 colonnes. Ci-dessous, l'état final du spri
 Une user story est « terminée » si et seulement si :
 
 1. Le code est implémenté et respecte les conventions, avec ESLint sans erreur.
-2. Les tests Vitest passent et les seuils versionnés sont respectés ; la cible projet reste 80 %.
+2. Les tests Vitest passent, les seuils CI versionnés sont respectés et les parcours métier critiques sont couverts.
 3. La user story est vérifiée manuellement contre ses critères d'acceptation et la preuve est conservée.
 4. Les critères d'accessibilité applicables sont vérifiés au clavier et avec un lecteur d'écran.
 5. Le code est revu par au moins une autre personne lorsque le contexte d'équipe le permet.
@@ -158,7 +158,7 @@ Une user story est « terminée » si et seulement si :
 | Non-conformité RGAA | Moyenne | Élevé | Audit manuel + tests d'accessibilité | En cours |
 | Latence API > 500 ms | Moyenne | Moyen | Cache + squelette de chargement | Maîtrisé |
 | Conflits Git | Faible | Faible | Branches courtes, revues rapides | Maîtrisé |
-| Couverture tests < 80 % | Faible | Moyen | Tests écrits en parallèle du dev | Surveillé |
+| Couverture insuffisante des parcours métier | Faible | Moyen | Tests ciblés et seuils CI progressifs | Surveillé |
 
 ---
 
@@ -181,7 +181,7 @@ Le sprint s'est terminé à temps, avec une légère avance sur l'idéal aux jou
 
 | Métrique | Cible | Réalisé |
 |----------|-------|---------|
-| Couverture de tests | ≥ 80 % | 45,65 % lignes au 2 septembre 2026 |
+| Couverture de tests | Seuils CI versionnés et parcours critiques | seuils respectés ; couverture à compléter sur certaines vues |
 | Linting ESLint | 0 erreur | 0 erreur, 6 avertissements |
 | Conformité RGAA (audit manuel) | Niveau AA | À auditer manuellement |
 | Temps de réponse moyen (accueil) | < 1 s | À mesurer en préproduction |

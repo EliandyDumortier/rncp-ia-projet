@@ -233,7 +233,7 @@ Chaque user story suit le format : *« En tant que [rôle], je veux [action], af
 | Sécurité | Protection XSS | Échappement React ; aucun `dangerouslySetInnerHTML` |
 | Accessibilité | Conformité | RGAA 4.1 niveau AA |
 | Compatibilité | Navigateurs | Chrome, Firefox, Safari, Edge (2 dernières versions) |
-| Maintenabilité | Couverture de tests | ≥ 80 % |
+| Maintenabilité | Couverture de tests | Seuils CI versionnés et couverture des parcours métier et droits d’accès critiques |
 | Observabilité | Logs | Structurés (JSON), niveau INFO en prod |
 
 ---

@@ -1,219 +1,145 @@
-# Étape 2 — Veille technique et intégration d'un service d'IA
+# Étape 2 — Veille et sélection du service d'IA
 
-**Projet** : K-Drama Recommendation System
-**Branche Git** : `etape2/integration-ia`
-**Compétences** : C6 (veille technique et réglementaire), C7 (identification de services d'IA), C8 (configuration d'un service d'IA)
+Cette étape couvre C6 (veille), C7 (benchmark) et C8 (installation et configuration du service retenu) pour le système de recommandation K-Drama.
 
----
+## Livrables et preuves
 
-## Table des matières
+| Compétence | Preuve | Limite déclarée |
+|---|---|---|
+| C6 | `src/veille_rss.py`, `src/rapport_veille.md`, `src/synthese_veille.md`, `src/journal_veille.md` | la récurrence se démontre séance après séance; une seule séance est actuellement journalisée |
+| C7 | `src/benchmark_ia.py`, `src/rapport_benchmark.md` | grille de décision documentée; les API cloud n'ont pas été exécutées dans un protocole de performance commun |
+| C8 | `src/config_ia_service.py` et commandes ci-dessous | validation locale du composant retenu; l'API complète est réalisée en étape 3 |
 
-1. [Présentation](#présentation)
-2. [Structure des fichiers](#structure-des-fichiers)
-3. [Installation](#installation)
-4. [Utilisation](#utilisation)
-5. [Scripts détaillés](#scripts-détaillés)
-6. [Résultats du benchmark](#résultats-du-benchmark)
-7. [Conformité réglementaire](#conformité-réglementaire)
+La correspondance détaillée avec les 18 critères officiels et les deux preuves encore temporelles est disponible dans `VALIDATION_E2.md`.
 
----
+Le précédent dossier annonçait des volumes de veille, performances et prix non justifiés. Ils ont été supprimés ou remplacés par des faits datés et sourcés.
 
-## Présentation
+## Besoin reformulé
 
-Cette étape met en place la veille technique et réglementaire nécessaire au
-projet, identifie et compare les services d'IA disponibles pour le système de
-recommandation de K-Dramas, puis installe et configure le service d'IA retenu.
+Le projet doit recommander des K-Dramas à partir des synopsis, genres, acteurs, préférences et historiques. Le composant d'IA doit :
 
-Le système de recommandation utilise une approche hybride :
-- **Filtrage basé sur le contenu** (*content-based*) : vectorisation des
-  descriptions de séries avec `sentence-transformers` (Hugging Face) et calcul
-  de similarité sémantique.
-- **Filtrage collaboratif** (*collaborative filtering*) : identification
-  d'utilisateurs similaires avec `scikit-learn` (TruncatedSVD + NearestNeighbors).
+- représenter les synopsis pour calculer une similarité sémantique;
+- s'intégrer à Python et à la future API FastAPI;
+- fonctionner sur CPU dans le POC et respecter un budget étudiant;
+- limiter l'exposition des données personnelles;
+- rester testable, versionnable et remplaçable;
+- éviter un service génératif disproportionné pour une tâche d'embeddings.
 
----
+Les synopsis du catalogue sont principalement en anglais. Les requêtes utilisateur peuvent être françaises ou anglaises : cette différence est une limite à tester et non une capacité supposée.
 
-## Structure des fichiers
+## Structure
 
-```
+```text
 etape2/
-├── README.md                  # Ce fichier
-├── requirements.txt          # Dépendances Python (versions fixées)
-└── src/
-    ├── veille_rss.py          # Agrégateur RSS pour la veille (C6)
-    ├── benchmark_ia.py        # Benchmark comparatif des services d'IA (C7)
-    ├── config_ia_service.py   # Configuration et tests du service d'IA (C8)
-    ├── synthese_veille.md     # Synthèse de la veille (3 mois) (C6)
-    └── grille_benchmark.md    # Grille de benchmark scorée (C7)
+├── README.md
+├── requirements.txt
+├── src/
+│   ├── benchmark_ia.py
+│   ├── config_ia_service.py
+│   ├── collecte_veille_rss.md  # créé lors d'une collecte
+│   ├── journal_veille.md
+│   ├── rapport_benchmark.md
+│   ├── rapport_veille.md
+│   ├── synthese_veille.md
+│   └── veille_rss.py
+└── tests/
+    └── test_etape2.py
 ```
-
----
 
 ## Installation
 
-### Prérequis
+Prérequis : Python 3.10 ou supérieur, `pip`, connexion internet pour les flux et le premier téléchargement du modèle.
 
-- Python 3.10 ou supérieur
-- pip (gestionnaire de paquets Python)
-- Connexion internet (pour le téléchargement initial du modèle sentence-transformers)
+Sous PowerShell :
 
-### Étapes
-
-```bash
-# 1. Créer un environnement virtuel
+```powershell
+cd dossier_projet/etape2
 python -m venv .venv
-
-# 2. Activer l'environnement virtuel
-source .venv/bin/activate        # Linux / macOS
-# .venv\Scripts\activate         # Windows
-
-# 3. Installer les dépendances
-pip install -r requirements.txt
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-Le modèle `all-MiniLM-L6-v2` (90 Mo) sera téléchargé automatiquement depuis le
-Hugging Face Hub lors de la première exécution de `config_ia_service.py` ou
-`benchmark_ia.py`.
+Sous Linux ou macOS :
 
----
+```bash
+cd dossier_projet/etape2
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Le dossier `.venv` est ignoré par Git.
 
 ## Utilisation
 
-### 1. Lancer la veille RSS (C6)
+### Veille C6
 
-```bash
+```powershell
 python src/veille_rss.py
 ```
 
-Le script :
-- Lit les flux RSS configurés (blogs IA, sites réglementaires, communautés).
-- Filtre les articles par mots-clés pertinents.
-- Déduplique les articles (historique persistant en JSON).
-- Génère un rapport Markdown (`src/rapport_veille.md`).
+Le script agrège les flux, retire les doublons, filtre sur des mots complets et écrit la collecte brute `src/collecte_veille_rss.md`. Il ne remplace jamais `src/rapport_veille.md`, qui contient uniquement des informations relues et confirmées. L'historique généré `src/veille_historique.json` évite de recompter les mêmes liens. Les résultats RSS restent des candidats : une information tarifaire ou juridique doit être confirmée dans une source officielle avant d'entrer dans la synthèse.
 
-### 2. Lancer le benchmark des services d'IA (C7)
+Après chaque séance réelle, compléter `src/journal_veille.md` avec la durée, les sources, la conclusion et le lien de communication. Le rythme cible est une heure par semaine.
 
-```bash
+### Benchmark C7
+
+```powershell
 python src/benchmark_ia.py
 ```
 
-Le script :
-- Évalue 5 services d'IA sur 5 critères pondérés.
-- Mesure la latence et la qualité (si sentence-transformers est installé).
-- Calcule le coût théorique de chaque service.
-- Génère un rapport Markdown (`src/rapport_benchmark.md`).
+Le script régénère `src/rapport_benchmark.md` à partir des hypothèses, tarifs datés, prérequis et notes de décision versionnés dans le code. Il ne produit pas de fausses mesures de latence ou de qualité cloud.
 
-### 3. Configurer et tester le service d'IA (C8)
+### Configuration C8
 
-```bash
+```powershell
 python src/config_ia_service.py
 ```
 
-Le script :
-- Charge le modèle `sentence-transformers` (content-based filtering).
-- Entraîne le modèle SVD + KNN (collaborative filtering).
-- Exécute des tests de validation (latence, qualité, gestion d'erreurs).
-- Affiche un bilan des tests dans la console.
+Le service retenu est Sentence Transformers avec `all-MiniLM-L6-v2`, complété par scikit-learn pour le prototype collaboratif. La fiche du modèle le déclare anglophone, produit des vecteurs de 384 dimensions et tronque les entrées longues. Le premier lancement télécharge les poids depuis Hugging Face; les exécutions suivantes utilisent le cache local.
 
----
+Le script vérifie le chargement, l'indexation, la recommandation par similarité, l'entraînement SVD/KNN et plusieurs erreurs d'entrée. Aucun identifiant ou mot de passe n'est requis pour ce composant local. L'accès authentifié et l'exposition HTTP appartiennent à l'API de l'étape 3.
 
-## Scripts détaillés
+### Tests de non-régression légers
 
-### veille_rss.py — Agrégateur RSS (C6)
+```powershell
+python -m unittest discover -s tests -v
+```
 
-Script d'automatisation de la veille technique et réglementaire.
+Ces tests vérifient le volume et les calculs de prix documentés, la présence des limites dans le rapport et le correctif qui empêche `ai` de correspondre à `CIA`.
 
-**Fonctionnalités :**
-- Lecture de 15+ flux RSS organisés en 4 catégories (modèles IA, services d'IA,
-  réglementation, communauté).
-- Filtrage par mots-clés (IA, recommandation, RGPD, AI Act, embeddings, etc.).
-- Déduplication par hash SHA-256 (titre + URL), persistance en JSON.
-- Génération d'un rapport Markdown trié par catégorie et par date.
-- Gestion d'erreurs robuste (un flux indisponible ne bloque pas les autres).
-- Logging configurable.
+## Données et interconnexions
 
-**Sorties :**
-- `src/rapport_veille.md` — rapport des articles collectés.
-- `src/veille_historique.json` — historique des hashes pour la déduplication.
+Entrées du composant local : synopsis publics du catalogue et, pour la partie collaborative de démonstration, tuples utilisateur-série-note synthétiques. Sorties : vecteurs, similarités et identifiants ordonnés. Les mots de passe, e-mails et consentements ne sont pas nécessaires à l'inférence d'embeddings et ne doivent pas lui être transmis.
 
-### benchmark_ia.py — Benchmark des services d'IA (C7)
+```text
+catalogue de synopsis ──> all-MiniLM-L6-v2 ──> vecteurs ──> similarité cosine
+notes utilisateur-série ────────────────────> SVD / KNN ──> candidats
+```
 
-Script de benchmark comparatif et reproductible.
+En étape 3, ces briques sont intégrées à l'API du modèle. Le déploiement gratuit peut utiliser un repli TF-IDF en cas de contrainte mémoire; il s'agit d'une évolution d'exploitation documentée à l'étape 3, pas d'une modification rétroactive du choix de POC.
 
-**Services évalués :**
-1. OpenAI (`text-embedding-3-small`)
-2. Hugging Face (`sentence-transformers` en local)
-3. Cohere (`embed-multilingual-v3.0`)
-4. Modèles locaux (Ollama + `nomic-embed-text`)
-5. Google Vertex AI (`text-embedding-004`)
+## Décision du benchmark
 
-**Critères (pondérés) :**
-- Coût (25 %), Latence (20 %), Qualité (25 %), Intégration (15 %), Conformité (15 %).
+`all-MiniLM-L6-v2` local est retenu pour le POC : faible taille, intégration directe et absence d'appel à un fournisseur externe pour encoder les textes. OpenAI est l'alternative SaaS au coût public comparable le plus bas dans la revue du 3 septembre 2026. Google est chiffré avec son tarif token actuel. Cohere reste « non comparable » lorsque la page publique ne fournit pas de prix API Embed par token.
 
-**Sorties :**
-- `src/rapport_benchmark.md` — grille scorée et analyse détaillée.
-- Résumé dans la console (notes globales).
+La licence ou l'absence de facturation par appel ne rend pas le local gratuit : machine, mémoire, énergie, hébergement et maintenance relèvent du coût total de possession.
 
-### config_ia_service.py — Configuration du service d'IA (C8)
+## Conformité et accessibilité
 
-Script de configuration et de validation du service d'IA retenu.
+Les préférences et historiques liés à un compte sont des données personnelles pouvant alimenter un profil. Le projet applique finalité, minimisation, transparence, modification et suppression. L'article 50 du règlement européen sur l'IA n'est plus présenté comme imposant automatiquement un mode non personnalisé à tout recommandeur.
 
-**Composants configurés :**
-- `ContentBasedRecommender` : encapsule sentence-transformers pour le
-  filtrage basé sur le contenu (chargement lazy, embeddings en batch,
-  recommandation par similarité cosine).
-- `CollaborativeFilteringRecommender` : encapsule scikit-learn (TruncatedSVD +
-  NearestNeighbors) pour le filtrage collaboratif (construction de matrice
-  creuse, entraînement, prédiction de note, recommandation KNN).
+Les documents emploient des titres hiérarchisés, des liens explicites, des tableaux simples et du texte lisible sans dépendre de la couleur. Lors de l'export en PDF, vérifier les signets, l'ordre de lecture, le contraste et le texte alternatif des éventuelles images.
 
-**Tests inclus :**
-- Test du content-based (indexation, recommandation par index et par requête).
-- Test du collaborative (entraînement, prédiction, recommandation KNN).
-- Mesure de latence (cible : < 200 ms content-based, < 500 ms collaborative).
-- Gestion d'erreurs (modèle introuvable, matrice vide, index hors bornes).
+## Sources de référence
 
----
+- [Fiche officielle all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
+- [Tarif officiel OpenAI text-embedding-3-small](https://developers.openai.com/api/docs/models/text-embedding-3-small)
+- [Tarification Google Vertex AI](https://cloud.google.com/vertex-ai/generative-ai/pricing)
+- [Tarification Cohere](https://cohere.com/pricing)
+- [Règlement européen sur l'IA sur EUR-Lex](https://eur-lex.europa.eu/eli/reg/2024/1689/oj)
+- [CNIL — profilage et décision automatisée](https://www.cnil.fr/fr/profilage-et-decision-entierement-automatisee)
 
-## Résultats du benchmark
-
-| Service | Note globale |
-|---|:---:|
-| 🥇 Hugging Face (sentence-transformers, local) | **4,55 / 5** |
-| 🥈 Modèles locaux (Ollama) | 4,10 / 5 |
-| 🥉 OpenAI | 3,85 / 5 |
-| Google Vertex AI | 3,85 / 5 |
-| Cohere | 3,60 / 5 |
-
-**Service retenu** : Hugging Face `sentence-transformers` (inférence locale) +
-`scikit-learn` (filtrage collaboratif).
-
-Voir `src/grille_benchmark.md` pour la grille complète et la justification.
-
----
-
-## Conformité réglementaire
-
-Le choix de l'inférence locale garantit :
-- **RGPD** : aucune donnée personnelle ne quitte le serveur (pas de transfert
-  hors UE).
-- **AI Act (art. 50)** : une mention « Recommandations par IA » sera affichée
-  dans l'interface (Étape 3).
-- **PIPA (Corée)** : pas de transfert international de données.
-
-Voir `src/synthese_veille.md` pour le détail des findings réglementaires.
-
----
-
-## Prochaines étapes (Étape 3)
-
-- Intégration des classes `ContentBasedRecommender` et
-  `CollaborativeFilteringRecommender` dans une API FastAPI.
-- Filtrage hybride (combinaison pondérée des deux approches).
-- Évaluation quantitative (NDCG@10, MAP, Recall@K).
-- Interface de transparence (AI Act) et option de recommandation non
-  personnalisée.
-- Intégration de FAISS si le catalogue dépasse 50 000 séries.
-
----
-
-*Étape 2 — Veille technique et intégration d'un service d'IA*
+Toutes les valeurs temporelles doivent être revérifiées avant soutenance ou décision d'achat.
